@@ -73,11 +73,7 @@
   .card-body { flex: 1; overflow-y: auto; max-height: 520px; }
   .card-footer { padding: 6px 12px; border-top: 1px solid rgba(255,255,255,0.04); font-size: 9px; font-family: var(--mono); color: rgba(255,255,255,0.15); }
 
-  /* Comparison chart collapse toggle */
-  .comp-chart-toggle { background: none; border: none; color: var(--dim); cursor: pointer; font-size: 11px; font-family: var(--mono); padding: 2px 6px; border-radius: 3px; opacity: 0.6; margin-left: auto; }
-  .comp-chart-toggle:hover { opacity: 1; background: rgba(255,255,255,0.04); }
-  .comp-chart-body { overflow: hidden; transition: max-height 0.25s ease, opacity 0.25s ease; max-height: 400px; opacity: 1; }
-  .comp-chart-body.collapsed { max-height: 0; opacity: 0; pointer-events: none; }
+  /* Comparison chart collapse on mobile */
 
   /* Mobile breakpoint */
   @media (max-width: 600px) {
@@ -232,19 +228,9 @@ let loadingSet = new Set();
 let errors = {};
 let views = {};
 let globalSparkMode = "temp";
-let compChartCollapsed = window.innerWidth < 600; // collapsed by default on mobile
 let expandedRows = new Set();
 let allExpanded = false;
 let selectedDayIndex = null;
-
-function toggleCompChart() {
-  compChartCollapsed = !compChartCollapsed;
-  // Toggle class directly without full re-render for snappy feel
-  const body = document.getElementById("compChartBody");
-  const btn  = document.getElementById("compChartToggleBtn");
-  if (body) body.classList.toggle("collapsed", compChartCollapsed);
-  if (btn)  btn.textContent = compChartCollapsed ? "▸ show" : "▾ hide";
-}
 
 // --- Storage ---
 function loadLocations() {
@@ -999,6 +985,29 @@ function renderECMWFRows(ecmwfDays, noaaDaily) {
   </div>${rows}`;
 }
 
+// Moon phase — pure math, no API needed
+// Returns { emoji, label, pct } where pct is 0-100 illumination
+function moonPhase(dateStr) {
+  // Known new moon reference: Jan 6 2000 18:14 UTC (J2000 epoch)
+  const refNewMoon = new Date("2000-01-06T18:14:00Z").getTime();
+  const CYCLE = 29.53059 * 24 * 3600 * 1000; // ms per lunar cycle
+  const t = new Date(dateStr + "T12:00:00Z").getTime();
+  const age = ((t - refNewMoon) % CYCLE + CYCLE) % CYCLE; // ms into current cycle
+  const ageDays = age / (24 * 3600 * 1000);
+  const pct = Math.round((1 - Math.cos(2 * Math.PI * ageDays / 29.53059)) / 2 * 100);
+  let emoji, label;
+  if      (ageDays <  1.85) { emoji = "🌑"; label = "New"; }
+  else if (ageDays <  7.38) { emoji = "🌒"; label = "Waxing Crescent"; }
+  else if (ageDays <  9.22) { emoji = "🌓"; label = "First Quarter"; }
+  else if (ageDays < 14.77) { emoji = "🌔"; label = "Waxing Gibbous"; }
+  else if (ageDays < 16.61) { emoji = "🌕"; label = "Full"; }
+  else if (ageDays < 22.15) { emoji = "🌖"; label = "Waning Gibbous"; }
+  else if (ageDays < 23.99) { emoji = "🌗"; label = "Last Quarter"; }
+  else if (ageDays < 29.53) { emoji = "🌘"; label = "Waning Crescent"; }
+  else                       { emoji = "🌑"; label = "New"; }
+  return { emoji, label, pct };
+}
+
 // --- Render ---
 function renderCard(loc, index) {
   const key = locKey(loc);
@@ -1030,13 +1039,15 @@ function renderCard(loc, index) {
       const isSelected = selectedDayIndex === pi;
       const cls = ["daily-row", night ? "night" : "", isSelected ? "selected" : ""].filter(Boolean).join(" ");
 
-      // Sunrise/sunset from Open-Meteo sunTimes map — keyed by local date string
+      // Sunrise/sunset + moon phase — shown on daytime rows only
       const dateKey = p.startTime.slice(0, 10);
       const sun = data.sunTimes?.[dateKey];
+      const moon = moonPhase(dateKey);
       const sunHtml = sun && !night
         ? `<div style="font-size:9px;font-family:var(--mono);color:rgba(255,255,255,0.28);margin-top:3px;padding-left:1px">
              <span title="Sunrise">🌅 ${sun.sunrise}</span>
              <span style="margin-left:8px" title="Sunset">🌇 ${sun.sunset}</span>
+             <span style="margin-left:8px" title="${moon.label}">${moon.emoji} ${moon.pct}%</span>
            </div>`
         : "";
 
@@ -1281,16 +1292,13 @@ function renderCompChart() {
       <span class="comp-chart-title">COMPARISON</span>
       ${SPARK_METRICS.map(m => `<button class="spark-pill${mode === m.id ? " active" : ""}" onclick="setSparkMode('${m.id}')">${m.label}</button>`).join("")}
       ${bandNote}
-      <button id="compChartToggleBtn" class="comp-chart-toggle" onclick="toggleCompChart()">${compChartCollapsed ? "▸ show" : "▾ hide"}</button>
     </div>
-    <div id="compChartBody" class="comp-chart-body${compChartCollapsed ? " collapsed" : ""}">
-      <svg class="comp-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
-        ${yLabels}
-        ${xLabels}
-        ${paths}
-      </svg>
-      <div class="comp-legend">${legend}</div>
-    </div>
+    <svg class="comp-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+      ${yLabels}
+      ${xLabels}
+      ${paths}
+    </svg>
+    <div class="comp-legend">${legend}</div>
   </div>`;
 }
 
