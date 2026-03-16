@@ -1,0 +1,1440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NOAA Multi-Location Forecast</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0d1117; --card: #161b22; --text: #e6edf3; --dim: #7d8590;
+    --accent: #58a6ff; --mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+    --sans: 'DM Sans', 'Helvetica Neue', sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; }
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
+  input::placeholder { color: rgba(255,255,255,0.25); }
+  @keyframes pulse { 0%,100% { opacity: 0.4; } 50% { opacity: 1; } }
+
+  .header { padding: 16px 20px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
+  .header h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.03em; display: flex; align-items: center; gap: 8px; flex: 1 1 auto; }
+  .header h1 .icon { font-size: 14px; opacity: 0.4; }
+  .header .sub { font-size: 11px; font-family: var(--mono); color: var(--dim); margin-top: 3px; }
+  .header-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+  .btn { padding: 6px 14px; font-size: 11px; font-family: var(--mono); border-radius: 6px; cursor: pointer; letter-spacing: 0.03em; border: none; }
+  .btn-accent { background: var(--accent); color: #0d1117; font-weight: 600; font-size: 12px; padding: 7px 16px; }
+  .btn-ghost { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); color: var(--dim); }
+  .btn-refresh { background: rgba(88,166,255,0.1); border: 1px solid rgba(88,166,255,0.2); color: var(--accent); }
+
+  .search-bar { padding: 12px 24px; border-bottom: 1px solid rgba(255,255,255,0.06); display: flex; flex-wrap: wrap; gap: 8; align-items: center; }
+  .search-wrap { position: relative; flex: 1 1 300px; max-width: 480px; }
+  .search-wrap input { padding: 7px 12px; font-size: 13px; width: 100%; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); color: var(--text); border-radius: 6px; outline: none; font-family: var(--sans); }
+  .search-wrap input:focus { border-color: rgba(88,166,255,0.3); }
+  .dropdown { position: absolute; top: 100%; left: 0; right: 0; margin-top: 4px; z-index: 20; background: #1c2129; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 4px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); max-height: 280px; overflow-y: auto; }
+  .dropdown-item { display: block; width: 100%; text-align: left; padding: 8px 12px; font-size: 12px; background: transparent; border: none; color: var(--text); cursor: pointer; border-radius: 4px; }
+  .dropdown-item:hover { background: rgba(255,255,255,0.06); }
+  .dropdown-item .sub { font-size: 10px; font-family: var(--mono); color: var(--dim); margin-top: 1px; }
+
+  /* Card grid — horizontal scrolling row */
+  .grid {
+    padding: 16px;
+    display: flex;
+    flex-direction: row;
+    gap: 16px;
+    overflow-x: auto;
+    overflow-y: visible;
+    align-items: start;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+  .grid::-webkit-scrollbar { height: 4px; }
+  .grid::-webkit-scrollbar-track { background: transparent; }
+  .grid::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
+
+  .card {
+    background: var(--card); border-radius: 10px; border: 1px solid rgba(255,255,255,0.06);
+    overflow: hidden; display: flex; flex-direction: column;
+    flex: 0 0 360px;           /* fixed width, never shrink */
+    scroll-snap-align: start;
+    min-width: 0;
+  }
+  .card-header { padding: 14px 16px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+  .card-sparkline { position: sticky; top: 0; z-index: 5; background: var(--card); border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 4px; }
+  .card-title { font-size: 16px; font-weight: 700; letter-spacing: -0.02em; }
+  .card-meta { font-size: 11px; font-family: var(--mono); color: var(--dim); margin-top: 2px; }
+  .card-coords { font-size: 10px; font-family: var(--mono); color: rgba(255,255,255,0.2); margin-top: 1px; }
+  .card-close { background: none; border: none; color: var(--dim); cursor: pointer; font-size: 18px; line-height: 1; padding: 0 0 0 8px; opacity: 0.5; }
+  .card-close:hover { opacity: 1; }
+  .card-body { flex: 1; overflow-y: auto; max-height: 520px; }
+  .card-footer { padding: 6px 12px; border-top: 1px solid rgba(255,255,255,0.04); font-size: 9px; font-family: var(--mono); color: rgba(255,255,255,0.15); }
+
+  /* Comparison chart collapse toggle */
+  .comp-chart-toggle { background: none; border: none; color: var(--dim); cursor: pointer; font-size: 11px; font-family: var(--mono); padding: 2px 6px; border-radius: 3px; opacity: 0.6; margin-left: auto; }
+  .comp-chart-toggle:hover { opacity: 1; background: rgba(255,255,255,0.04); }
+  .comp-chart-body { overflow: hidden; transition: max-height 0.25s ease, opacity 0.25s ease; max-height: 400px; opacity: 1; }
+  .comp-chart-body.collapsed { max-height: 0; opacity: 0; pointer-events: none; }
+
+  /* Mobile breakpoint */
+  @media (max-width: 600px) {
+    .header { padding: 12px 16px 10px; }
+    .header h1 { font-size: 17px; }
+    .header .sub { display: none; }
+    .search-bar { padding: 10px 16px; }
+    .grid { padding: 12px; gap: 12px; }
+    .card { flex: 0 0 calc(100vw - 40px); }   /* near-full width, peek next card */
+    .card-body { max-height: none; }            /* uncap on mobile — page scrolls instead */
+    .comp-chart { padding: 8px 16px 6px; }
+  }
+
+  .hourly-row { padding: 6px 12px; border-bottom: 1px solid rgba(255,255,255,0.03); display: grid; grid-template-columns: 60px 24px 1fr auto 90px; align-items: center; gap: 8px; font-size: 12px; }
+  .hourly-row.night { opacity: 0.6; }
+  .hourly-time { font-family: var(--mono); color: var(--dim); }
+  .hourly-desc { font-family: var(--mono); font-size: 10px; color: var(--dim); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .temp-bar { display: flex; align-items: center; gap: 8px; min-width: 100px; }
+  .temp-val { font-family: var(--mono); font-size: 18px; font-weight: 700; min-width: 36px; text-align: right; }
+  .temp-val.small { font-size: 14px; min-width: 30px; }
+  .temp-track { flex: 1; height: 4px; background: rgba(255,255,255,0.06); border-radius: 2px; overflow: hidden; }
+  .temp-fill { height: 100%; border-radius: 2px; transition: width 0.4s ease; }
+
+  .wind { display: inline-flex; align-items: center; gap: 3px; font-family: var(--mono); }
+  .wind-arrow { display: inline-block; font-size: 11px; opacity: 0.7; }
+  .wind-speed { font-size: 11px; }
+
+  .precip-wrap { padding: 8px 12px; }
+  .precip-label { font-size: 10px; font-family: var(--mono); color: var(--dim); margin-bottom: 4px; }
+  .precip-bars { display: flex; align-items: flex-end; gap: 1px; height: 32px; position: relative; }
+  .precip-bar { flex: 1; border-radius: 1px 1px 0 0; transition: height 0.3s ease; min-height: 1px; position: relative; }
+  .precip-bar::after { content: attr(data-tip); position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); background: #1c2129; color: var(--text); font-size: 10px; font-family: var(--mono); padding: 3px 6px; border-radius: 4px; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity 0.08s; z-index: 30; border: 1px solid rgba(255,255,255,0.1); box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
+  .precip-bar:hover::after { opacity: 1; }
+
+  .empty { padding: 80px 24px; text-align: center; }
+  .empty .big { font-size: 48px; margin-bottom: 16px; opacity: 0.15; }
+  .loading-msg { padding: 32px; text-align: center; color: var(--dim); font-size: 13px; animation: pulse 1.5s ease infinite; }
+  .error-msg { padding: 20px; color: #c75050; font-size: 12px; font-family: var(--mono); }
+  .btn-retry { margin-top: 10px; padding: 5px 12px; font-size: 11px; font-family: var(--mono); background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: var(--text); border-radius: 4px; cursor: pointer; }
+
+  .noaa-link { font-size: 10px; font-family: var(--mono); color: var(--accent); text-decoration: none; opacity: 0.7; display: inline-flex; align-items: center; gap: 3px; margin-top: 2px; }
+  .noaa-link:hover { opacity: 1; text-decoration: underline; }
+
+  .daily-row { padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.04); cursor: pointer; border-left: 3px solid transparent; transition: border-color 0.15s, background 0.15s; }
+  .daily-row:hover { background: rgba(255,255,255,0.02); }
+  .daily-row.night { opacity: 0.7; }
+  .daily-row.selected { border-left-color: var(--accent); background: rgba(88,166,255,0.06); }
+  .daily-row.selected.night { opacity: 0.85; }
+  .daily-grid { display: grid; grid-template-columns: 110px 32px 1fr auto; align-items: center; gap: 10px; }
+  .daily-name { font-size: 13px; font-weight: 600; }
+  .daily-detail { padding: 6px 0 4px 0; font-size: 12px; color: var(--dim); line-height: 1.5; display: none; }
+  .daily-detail.open { display: block; }
+
+  .spark-controls { display: flex; gap: 3px; padding: 8px 12px 2px; flex-wrap: wrap; }
+  .spark-pill { padding: 2px 8px; font-size: 9px; font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.05em; border-radius: 3px; cursor: pointer; border: 1px solid transparent; background: transparent; color: var(--dim); transition: color 0.1s; }
+  .spark-pill.active { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.2); color: var(--text); font-weight: 600; box-shadow: 0 0 0 1px rgba(255,255,255,0.08); }
+
+  .comp-chart { padding: 12px 24px 8px; border-bottom: 1px solid rgba(255,255,255,0.06); position: sticky; top: 0; z-index: 10; background: var(--bg); }
+  .comp-chart-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+  .comp-chart-title { font-size: 11px; font-family: var(--mono); color: var(--dim); letter-spacing: 0.03em; }
+  .comp-legend { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 6px; }
+  .comp-legend-item { display: flex; align-items: center; gap: 4px; font-size: 10px; font-family: var(--mono); color: var(--dim); }
+  .comp-legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .comp-svg { width: 100%; overflow: visible; }
+
+  .ecmwf-divider { padding: 4px 12px 2px; display: flex; align-items: center; gap: 6px; }
+  .ecmwf-divider-line { flex: 1; height: 1px; background: rgba(255,255,255,0.05); }
+  .ecmwf-divider-label { font-size: 8px; font-family: var(--mono); color: rgba(255,255,255,0.18); letter-spacing: 0.08em; white-space: nowrap; }
+  .ecmwf-row { padding: 7px 12px; border-bottom: 1px solid rgba(255,255,255,0.03); border-left: 3px solid transparent; opacity: 0.75; }
+  .ecmwf-row:hover { opacity: 1; background: rgba(255,255,255,0.015); }
+  .ecmwf-grid { display: grid; grid-template-columns: 110px 1fr auto auto; align-items: center; gap: 8px; }
+  .ecmwf-name { font-size: 12px; font-weight: 500; color: var(--text); }
+  .ecmwf-temps { font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+  .ecmwf-precip { font-size: 10px; font-family: var(--mono); color: var(--dim); text-align: right; white-space: nowrap; }
+  .ecmwf-wind { font-size: 10px; font-family: var(--mono); color: var(--dim); text-align: right; white-space: nowrap; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div style="flex: 1 1 auto">
+    <h1><span class="icon">☁︎</span> NOAA Multi-Location Forecast</h1>
+    <p class="sub">Side-by-side daily &amp; hourly forecasts · US locations · api.weather.gov · <span style="opacity:0.5">↑↓ navigate days · Esc reset</span></p>
+  </div>
+  <div class="header-actions">
+    <button class="btn btn-ghost" id="expandAllBtn" onclick="toggleExpandAll()">▸ Expand All</button>
+    <button class="btn btn-refresh" onclick="refreshAll()">↻ Refresh All</button>
+  </div>
+</div>
+
+<div class="search-bar">
+  <div class="search-wrap" id="searchWrap">
+    <input id="searchInput" placeholder="Search location… e.g. Moab, UT or Bear Lake RMNP" autocomplete="off">
+    <div class="dropdown" id="searchDropdown" style="display:none"></div>
+  </div>
+  <div style="position:relative">
+    <button class="btn btn-ghost" data-presets onclick="togglePresets()">+ Presets ▾</button>
+    <div class="dropdown" id="presetsDropdown" style="display:none; min-width:240px; position:absolute; top:100%; right:0; margin-top:4px;"></div>
+  </div>
+</div>
+
+<div id="compChart"></div>
+<div id="content"></div>
+
+<script>
+const PRESETS_KEY = "noaa-dashboard-presets";
+const DEFAULT_PRESETS = [
+  { name: "Standley Lake, CO", lat: 39.8308, lon: -105.1100 },
+  { name: "Rocky Mtn NP – Bear Lake", lat: 40.3128, lon: -105.6458 },
+  { name: "Zion NP – Springdale", lat: 37.1890, lon: -112.9983 },
+  { name: "Grand Canyon – South Rim", lat: 36.0544, lon: -112.1401 },
+  { name: "Joshua Tree NP", lat: 33.8734, lon: -115.9010 },
+];
+
+function loadPresets() {
+  try {
+    const raw = localStorage.getItem(PRESETS_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+function savePresets(presets) {
+  try { localStorage.setItem(PRESETS_KEY, JSON.stringify(presets)); } catch {}
+}
+function getUserPresets() {
+  return loadPresets() ?? [...DEFAULT_PRESETS];
+}
+function addPreset(loc) {
+  const presets = getUserPresets();
+  if (presets.some(p => Math.abs(p.lat - loc.lat) < 0.001 && Math.abs(p.lon - loc.lon) < 0.001)) return;
+  presets.push({ name: loc.name, lat: loc.lat, lon: loc.lon });
+  savePresets(presets);
+}
+function removePreset(index) {
+  const presets = getUserPresets();
+  presets.splice(index, 1);
+  savePresets(presets);
+}
+
+const STORAGE_KEY = "noaa-dashboard-locations";
+const LOC_COLORS = ["#58a6ff", "#d4946a", "#8bc78b", "#b39ddb", "#e06c75", "#e5c07b", "#56b6c2", "#c678dd", "#98c379", "#d19a66"];
+
+let hiddenChartLocs = new Set(); // keys of locations toggled off in comparison chart
+function toggleChartLoc(key) {
+  if (hiddenChartLocs.has(key)) hiddenChartLocs.delete(key);
+  else hiddenChartLocs.add(key);
+  renderCompChart();
+}
+let locations = [];
+let weatherData = {};
+let loadingSet = new Set();
+let errors = {};
+let views = {};
+let globalSparkMode = "temp";
+let compChartCollapsed = window.innerWidth < 600; // collapsed by default on mobile
+let expandedRows = new Set();
+let allExpanded = false;
+let selectedDayIndex = null;
+
+function toggleCompChart() {
+  compChartCollapsed = !compChartCollapsed;
+  // Toggle class directly without full re-render for snappy feel
+  const body = document.getElementById("compChartBody");
+  const btn  = document.getElementById("compChartToggleBtn");
+  if (body) body.classList.toggle("collapsed", compChartCollapsed);
+  if (btn)  btn.textContent = compChartCollapsed ? "▸ show" : "▾ hide";
+}
+
+// --- Storage ---
+function loadLocations() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+function saveLocations() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(locations)); } catch {}
+}
+
+// --- Geocoding ---
+let debounceTimer = null;
+const searchInput = document.getElementById("searchInput");
+const searchDropdown = document.getElementById("searchDropdown");
+
+searchInput.addEventListener("input", () => {
+  clearTimeout(debounceTimer);
+  const q = searchInput.value.trim();
+  if (q.length < 2) { searchDropdown.style.display = "none"; return; }
+  debounceTimer = setTimeout(() => geocode(q), 400);
+});
+searchInput.addEventListener("focus", () => {
+  if (searchDropdown.children.length > 0) searchDropdown.style.display = "block";
+});
+document.addEventListener("click", (e) => {
+  if (!document.getElementById("searchWrap").contains(e.target)) searchDropdown.style.display = "none";
+  if (!e.target.closest("[data-presets]") && !e.target.closest("#presetsDropdown")) {
+    document.getElementById("presetsDropdown").style.display = "none";
+  }
+});
+
+async function geocode(query) {
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=6&q=${encodeURIComponent(query)}`);
+    const data = await res.json();
+    searchDropdown.innerHTML = "";
+    if (data.length === 0) {
+      searchDropdown.innerHTML = `<div style="padding:12px 16px;font-size:12px;color:var(--dim)">No results found</div>`;
+      searchDropdown.style.display = "block";
+      return;
+    }
+    data.forEach(r => {
+      const name = r.display_name.split(",").slice(0, 3).join(",").trim();
+      const btn = document.createElement("button");
+      btn.className = "dropdown-item";
+      btn.innerHTML = `<div style="font-weight:500">${esc(name)}</div><div class="sub">${parseFloat(r.lat).toFixed(4)}, ${parseFloat(r.lon).toFixed(4)} · ${esc(r.type)}</div>`;
+      btn.onclick = () => pickResult({ name, lat: parseFloat(r.lat), lon: parseFloat(r.lon) });
+      searchDropdown.appendChild(btn);
+    });
+    searchDropdown.style.display = "block";
+  } catch {
+    searchDropdown.innerHTML = `<div style="padding:12px 16px;font-size:12px;color:#c75050">Search failed</div>`;
+    searchDropdown.style.display = "block";
+  }
+}
+
+function pickResult(loc) {
+  if (locations.some(l => Math.abs(l.lat - loc.lat) < 0.001 && Math.abs(l.lon - loc.lon) < 0.001)) return;
+  locations.push(loc);
+  saveLocations();
+  searchInput.value = "";
+  searchDropdown.style.display = "none";
+  fetchForLocation(loc);
+  render();
+}
+
+// --- Presets ---
+function togglePresets() {
+  const dd = document.getElementById("presetsDropdown");
+  if (dd.style.display === "block") { dd.style.display = "none"; return; }
+  renderPresetsDropdown();
+  dd.style.display = "block";
+}
+
+function renderPresetsDropdown() {
+  const dd = document.getElementById("presetsDropdown");
+  const presets = getUserPresets();
+  dd.innerHTML = "";
+
+  // Header row
+  const header = document.createElement("div");
+  header.style.cssText = "padding:6px 12px 4px;font-size:9px;font-family:var(--mono);color:var(--dim);letter-spacing:0.06em;text-transform:uppercase;display:flex;justify-content:space-between;align-items:center";
+  header.innerHTML = `<span>Presets</span><span style="opacity:0.5;font-size:8px">click × to remove</span>`;
+  dd.appendChild(header);
+
+  if (presets.length === 0) {
+    const empty = document.createElement("div");
+    empty.style.cssText = "padding:8px 12px;font-size:11px;color:var(--dim)";
+    empty.textContent = "No presets yet";
+    dd.appendChild(empty);
+  }
+
+  presets.forEach((p, i) => {
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;align-items:center;gap:4px;padding:2px 4px 2px 0";
+    const btn = document.createElement("button");
+    btn.className = "dropdown-item";
+    btn.style.flex = "1";
+    btn.innerHTML = `<div style="font-weight:500">${esc(p.name)}</div><div class="sub">${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}</div>`;
+    btn.onclick = () => { pickResult(p); dd.style.display = "none"; };
+    const removeBtn = document.createElement("button");
+    removeBtn.style.cssText = "background:none;border:none;color:var(--dim);cursor:pointer;font-size:14px;padding:0 8px;opacity:0.5;flex-shrink:0";
+    removeBtn.textContent = "×";
+    removeBtn.title = "Remove preset";
+    removeBtn.onclick = (e) => { e.stopPropagation(); removePreset(i); renderPresetsDropdown(); };
+    row.appendChild(btn);
+    row.appendChild(removeBtn);
+    dd.appendChild(row);
+  });
+
+  // Divider + add current locations
+  if (locations.length > 0) {
+    const div = document.createElement("div");
+    div.style.cssText = "border-top:1px solid rgba(255,255,255,0.06);margin:4px 0";
+    dd.appendChild(div);
+    locations.forEach(loc => {
+      const alreadyPreset = getUserPresets().some(p => Math.abs(p.lat - loc.lat) < 0.001);
+      if (alreadyPreset) return;
+      const addBtn = document.createElement("button");
+      addBtn.className = "dropdown-item";
+      addBtn.innerHTML = `<div style="font-weight:500;color:var(--accent)">+ ${esc(loc.name.split(",")[0])}</div><div class="sub">Save as preset</div>`;
+      addBtn.onclick = () => { addPreset(loc); renderPresetsDropdown(); };
+      dd.appendChild(addBtn);
+    });
+  }
+}
+
+// --- NOAA Fetch ---
+function locKey(loc) { return `${loc.lat},${loc.lon}`; }
+
+async function fetchNOAA(lat, lon) {
+  const pRes = await fetch(`https://api.weather.gov/points/${lat},${lon}`);
+  if (!pRes.ok) {
+    if (pRes.status === 404) throw new Error("Not covered by NOAA (US only)");
+    throw new Error(`Points API: ${pRes.status}`);
+  }
+  const pData = await pRes.json();
+  const props = pData.properties;
+
+  const [dRes, hRes, gRes] = await Promise.all([
+    fetch(props.forecast),
+    fetch(props.forecastHourly),
+    fetch(props.forecastGridData).catch(() => null),
+  ]);
+  if (!dRes.ok) throw new Error(`Forecast: ${dRes.status}`);
+  if (!hRes.ok) throw new Error(`Hourly: ${hRes.status}`);
+
+  const daily = await dRes.json();
+  const hourly = await hRes.json();
+
+  // Parse sky cover, wind gust, rain amount, and snow amount from grid data
+  let skyCoverByHour  = {};
+  let windGustByHour  = {};  // mph (converted from km/h)
+  let windChillByHour = {};  // °F (converted from °C)
+  let rainAmtByHour   = {};  // liquid rain inches (QPF, per hour)
+  let snowAmtByHour   = {};  // actual snow depth inches (per hour)
+  if (gRes && gRes.ok) {
+    try {
+      const grid = await gRes.json();
+
+      // Helper: expand an ISO-duration grid entry into per-hour buckets
+      function expandGridEntry(entry, onHour) {
+        const [timeStr, durStr] = entry.validTime.split("/");
+        const start = new Date(timeStr);
+        const durMatch = (durStr || "").match(/PT(\d+)H/);
+        const durHours = durMatch ? parseInt(durMatch[1]) : 1;
+        onHour(start, durHours, entry.value);
+      }
+
+      (grid.properties?.skyCover?.values || []).forEach(entry =>
+        expandGridEntry(entry, (start, durH, val) => {
+          for (let h = 0; h < durH; h++) {
+            const key = new Date(start.getTime() + h * 3600000).toISOString().slice(0, 13);
+            skyCoverByHour[key] = val;
+          }
+        })
+      );
+
+      // windGust in grid data is km/h — convert to mph, spread across duration hours
+      (grid.properties?.windGust?.values || []).forEach(entry =>
+        expandGridEntry(entry, (start, durH, val) => {
+          const mph = Math.round((val || 0) / 1.60934);
+          for (let h = 0; h < durH; h++) {
+            const key = new Date(start.getTime() + h * 3600000).toISOString().slice(0, 13);
+            windGustByHour[key] = mph;
+          }
+        })
+      );
+
+      // windChill in grid data is °C — convert to °F, spread across duration hours
+      (grid.properties?.windChill?.values || []).forEach(entry =>
+        expandGridEntry(entry, (start, durH, val) => {
+          const f = val != null ? Math.round(val * 9 / 5 + 32) : null;
+          for (let h = 0; h < durH; h++) {
+            const key = new Date(start.getTime() + h * 3600000).toISOString().slice(0, 13);
+            if (f != null) windChillByHour[key] = f;
+          }
+        })
+      );
+
+      // quantitativePrecipitation: total liquid mm over the duration → per-hour liquid inches
+      (grid.properties?.quantitativePrecipitation?.values || []).forEach(entry =>
+        expandGridEntry(entry, (start, durH, val) => {
+          const inchPerHour = (val || 0) / 25.4 / durH;
+          for (let h = 0; h < durH; h++) {
+            const key = new Date(start.getTime() + h * 3600000).toISOString().slice(0, 13);
+            rainAmtByHour[key] = inchPerHour;
+          }
+        })
+      );
+
+      // snowfallAmount: actual snow depth mm over the duration → per-hour snow inches
+      (grid.properties?.snowfallAmount?.values || []).forEach(entry =>
+        expandGridEntry(entry, (start, durH, val) => {
+          const inchPerHour = (val || 0) / 25.4 / durH;
+          for (let h = 0; h < durH; h++) {
+            const key = new Date(start.getTime() + h * 3600000).toISOString().slice(0, 13);
+            snowAmtByHour[key] = inchPerHour;
+          }
+        })
+      );
+    } catch {}
+  }
+
+  // Attach all grid-derived fields to hourly periods
+  const hourlyPeriods = hourly.properties.periods;
+  hourlyPeriods.forEach(p => {
+    const key = new Date(p.startTime).toISOString().slice(0, 13);
+    p._skyCover  = skyCoverByHour[key]  ?? null;
+    p._windGust  = windGustByHour[key]  ?? null;   // mph from grid; null = no data
+    p._windChill = windChillByHour[key] ?? null;   // °F from grid; null = no data
+    p._rainAmt   = rainAmtByHour[key]   ?? null;   // liquid rain inches/hr
+    p._snowAmt   = snowAmtByHour[key]   ?? null;   // snow depth inches/hr
+  });
+
+  return {
+    elevation: props.elevation?.value != null ? Math.round(props.elevation.value * 3.28084) : null,
+    gridId: props.gridId || "",
+    city: props.relativeLocation?.properties?.city || "",
+    state: props.relativeLocation?.properties?.state || "",
+    daily: daily.properties.periods.slice(0, 10),
+    hourly: hourlyPeriods,
+    updated: daily.properties.updateTime,
+  };
+}
+
+async function fetchForLocation(loc) {
+  const key = locKey(loc);
+  loadingSet.add(key);
+  delete errors[key];
+  render();
+  try {
+    weatherData[key] = await fetchNOAA(loc.lat, loc.lon);
+  } catch (e) {
+    errors[key] = e.message === "Failed to fetch" ? "Network error – check your connection or try again." : e.message;
+    loadingSet.delete(key);
+    render();
+    return;
+  }
+  loadingSet.delete(key);
+  // Load ECMWF extended forecast in background
+  render();
+  try {
+    const ecmwf = await fetchOpenMeteo(loc.lat, loc.lon).catch(() => null);
+    if (weatherData[key]) {
+      weatherData[key].ecmwfDays = ecmwf?.days ?? null;
+      // Use Open-Meteo elevation as fallback if NOAA didn't provide one
+      if (weatherData[key].elevation == null && ecmwf?.elevFt != null) {
+        weatherData[key].elevation = ecmwf.elevFt;
+      }
+      render();
+    }
+  } catch {
+    if (weatherData[key]) render();
+  }
+}
+
+function refreshAll() {
+  weatherData = {};
+  errors = {};
+  locations.forEach(fetchForLocation);
+}
+
+function removeLocation(index) {
+  const key = locKey(locations[index]);
+  locations.splice(index, 1);
+  delete weatherData[key];
+  delete errors[key];
+  delete views[key];
+  hiddenChartLocs.delete(key);
+  saveLocations();
+  render();
+}
+
+// --- Helpers ---
+function esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+
+function tempColor(t) {
+  if (t <= 32) return "#7eb8da";
+  if (t <= 50) return "#a8c8a0";
+  if (t <= 70) return "#d4c76a";
+  if (t <= 85) return "#d4946a";
+  return "#c75050";
+}
+
+function weatherIcon(fc, size) {
+  const f = (fc || "").toLowerCase();
+  let icon = "☀️";
+  if (f.includes("thunder") || f.includes("storm")) icon = "⛈️";
+  else if (f.includes("rain") || f.includes("shower") || f.includes("drizzle")) icon = "🌧️";
+  else if (f.includes("snow") || f.includes("blizzard")) icon = "🌨️";
+  else if (f.includes("fog") || f.includes("haze") || f.includes("mist")) icon = "🌫️";
+  else if (f.includes("cloud") && f.includes("partly")) icon = "⛅";
+  else if (f.includes("cloud") || f.includes("overcast")) icon = "☁️";
+  else if (f.includes("wind")) icon = "💨";
+  else if (f.includes("night") || f.includes("overnight")) icon = f.includes("cloud") ? "☁️" : "🌙";
+  return `<span style="font-size:${size}px;line-height:1">${icon}</span>`;
+}
+
+const WIND_DIRS = { N:180, NNE:202.5, NE:225, ENE:247.5, E:270, ESE:292.5, SE:315, SSE:337.5, S:0, SSW:22.5, SW:45, WSW:67.5, W:90, WNW:112.5, NW:135, NNW:157.5 };
+function windHtml(dir, speed) {
+  const deg = WIND_DIRS[dir] ?? 0;
+  return `<span class="wind"><span class="wind-arrow" style="transform:rotate(${deg}deg)">↓</span><span class="wind-speed">${esc(speed)}</span></span>`;
+}
+
+function tempBarHtml(temp, min, max, isNight, small) {
+  const range = max - min || 1;
+  const pct = ((temp - min) / range) * 100;
+  const c = tempColor(temp);
+  const cls = small ? "temp-val small" : "temp-val";
+  return `<div class="temp-bar"><span class="${cls}" style="color:${c};opacity:${isNight ? 0.65 : 1}">${temp}°</span><div class="temp-track"><div class="temp-fill" style="width:${Math.max(4, pct)}%;background:${c}"></div></div></div>`;
+}
+
+function parseWindSpeed(s) {
+  const m = String(s || "").match(/(\d+)/);
+  return m ? parseInt(m[1]) : 0;
+}
+
+// Windchill °F — prefer grid-derived _windChill (reliable); fall back to hourly field
+function windchillF(h) {
+  if (h._windChill != null) return h._windChill;
+  const wc = h.windChill?.value;
+  if (wc == null) return null;
+  return Math.round(wc * 9 / 5 + 32);
+}
+
+// Returns a bar color based on the type of precip in the hourly shortForecast
+function precipTypeColor(shortForecast) {
+  const f = (shortForecast || "").toLowerCase();
+  if (f.includes("thunder") || f.includes("storm"))               return "#e5c07b"; // amber
+  if (f.includes("sleet") || (f.includes("rain") && f.includes("snow"))) return "#c678dd"; // purple mix
+  if (f.includes("snow") || f.includes("blizzard") || f.includes("flurr")) return "#a8d8ea"; // ice blue
+  if (f.includes("rain") || f.includes("shower") || f.includes("drizzle")) return "#5b9bd5"; // blue
+  return "#5b9bd5"; // default blue
+}
+
+const SPARK_METRICS = [
+  { id: "temp",       label: "Temp",        color: "#d4c76a", unit: "°F",
+    type: "temp-band",
+    extract:  h => h.temperature || 0,
+    extract2: h => windchillF(h) },
+  { id: "precip",     label: "Precip %",    color: "#5b9bd5", unit: "%",
+    extract: h => h.probabilityOfPrecipitation?.value || 0 },
+  { id: "precip-amt", label: "Precip In.",  color: "#5b9bd5", unit: "\"",
+    type: "precip-amt",
+    extract:  h => { const snow = h._snowAmt ?? 0; const rain = h._rainAmt ?? 0; return snow > 0 ? snow : rain; },
+    extract2: h => h.probabilityOfPrecipitation?.value || 0 },
+  { id: "wind",       label: "Wind",        color: "#8bc78b", unit: " mph",
+    type: "band",
+    extract:  h => parseWindSpeed(h.windSpeed),
+    extract2: h => h._windGust ?? parseWindSpeed(h.windGust) },
+  { id: "sky",        label: "Sky Cover",   color: "#b39ddb", unit: "%",
+    extract: h => h._skyCover ?? 0 },
+];
+
+function getSparkHours(hourly, dailyPeriods) {
+  if (!hourly || hourly.length === 0) return { hours: [], label: "Next 24h", partial: false };
+  if (selectedDayIndex == null || !dailyPeriods || !dailyPeriods[selectedDayIndex]) {
+    return { hours: hourly.slice(0, 24), label: "Next 24h", partial: false };
+  }
+  const period = dailyPeriods[selectedDayIndex];
+  const isDay = period.isDaytime !== false;
+
+  // Anchor: 6 AM for daytime, 6 PM for nighttime, based on the period's start date
+  const pStart = new Date(period.startTime);
+  const anchor = new Date(pStart);
+  anchor.setMinutes(0, 0, 0);
+  anchor.setHours(isDay ? 6 : 18);
+  if (anchor > pStart) anchor.setDate(anchor.getDate() - 1);
+
+  const anchorEnd = new Date(anchor.getTime() + 24 * 3600000);
+
+  const filtered = hourly.filter(h => {
+    const t = new Date(h.startTime);
+    return t >= anchor && t < anchorEnd;
+  });
+
+  if (filtered.length === 0) {
+    return { hours: [], label: period.name, partial: true };
+  }
+  return { hours: filtered, label: period.name, partial: filtered.length < 20 };
+}
+
+function sparklineHtml(hourly, dailyPeriods) {
+  const { hours: hrs, label: periodLabel, partial } = getSparkHours(hourly, dailyPeriods);
+
+  const mode = globalSparkMode;
+  const metric = SPARK_METRICS.find(m => m.id === mode) || SPARK_METRICS[0];
+
+  let pills = `<div class="spark-controls">`;
+  SPARK_METRICS.forEach(m => {
+    pills += `<button class="spark-pill${mode === m.id ? " active" : ""}" onclick="setSparkMode('${m.id}')">${m.label}</button>`;
+  });
+  const resetBtn = selectedDayIndex != null
+    ? ` <button class="spark-pill" onclick="clearDaySelection()" style="margin-left:auto;border-color:rgba(255,255,255,0.15)">✕ Reset</button>`
+    : "";
+  const partialTag = partial && hrs.length > 0 ? ' <span style="font-size:8px;color:var(--dim)">(partial)</span>' : "";
+  pills += `<span style="margin-left:auto;font-size:9px;font-family:var(--mono);color:var(--accent);display:flex;align-items:center;gap:4px">${esc(periodLabel)}${partialTag}${resetBtn}</span>`;
+  pills += `</div>`;
+
+  // No hourly data for this period
+  if (hrs.length === 0) {
+    return `${pills}<div class="precip-wrap" style="padding-top:0"><div style="text-align:center;font-size:11px;font-family:var(--mono);color:var(--dim);padding:8px 0">No hourly data for this period</div></div>`;
+  }
+
+  // ── Precip In. (dual-encoding): height = rain/snow amount, opacity = probability ──
+  if (mode === "precip-amt") {
+    const probs = hrs.map(h => h.probabilityOfPrecipitation?.value || 0);
+    // Per hour: pick snow depth if snowing, else liquid rain; determine color from type
+    const amts  = hrs.map(h => {
+      const snow = h._snowAmt ?? 0;
+      const rain = h._rainAmt ?? 0;
+      return snow > 0 ? snow : rain;
+    });
+    const types = hrs.map(h => {
+      const snow = h._snowAmt ?? 0;
+      const rain = h._rainAmt ?? 0;
+      if (snow > 0 && rain > 0) return "mix";
+      if (snow > 0) return "snow";
+      // Fall back to shortForecast for labeling when grid amounts are 0 but prob > 0
+      return precipTypeColor(h.shortForecast) === "#a8d8ea" ? "snow" : "rain";
+    });
+
+    const maxAmt = Math.max(...amts, 0.01);
+    const labelEvery = hrs.length <= 12 ? 2 : 4;
+    // No grid data at all? Show a note.
+    const hasGridData = hrs.some(h => h._rainAmt !== null || h._snowAmt !== null);
+
+    let bars = "", timeLabels = "", valueLabels = "";
+    hrs.forEach((h, i) => {
+      const amt  = amts[i];
+      const prob = probs[i];
+      const type = types[i];
+      const heightPct = Math.max(amt > 0 ? 3 : 0, (amt / maxAmt) * 100);
+      const opacity   = prob > 0 ? Math.max(0.18, prob / 100) : 0.06;
+      const color = type === "snow" ? "#a8d8ea"
+                  : type === "mix"  ? "#c678dd"
+                  : precipTypeColor(h.shortForecast);
+      const t = new Date(h.startTime);
+      const hourStr = t.toLocaleTimeString([], { hour: "numeric", hour12: true });
+      const showLabel = i % labelEvery === 0;
+      const unit = type === "snow" ? '" snow' : type === "mix" ? '" mix' : '" rain';
+      const tipAmt = amt >= 0.01 ? amt.toFixed(2) + unit
+                   : amt >  0   ? "T" + unit
+                   :              '0"';
+      const tipProb = `${Math.round(prob)}%`;
+      const displayAmt = amt >= 0.01 ? amt.toFixed(2) : amt > 0 ? "T" : "";
+      bars        += `<div class="precip-bar" style="height:${heightPct}%;background:${color};opacity:${opacity.toFixed(2)}" data-tip="${hourStr}: ${tipAmt} · ${tipProb} chance"></div>`;
+      timeLabels  += `<div style="flex:1;text-align:center;font-size:9px;font-family:var(--mono);color:var(--dim);overflow:hidden;white-space:nowrap">${showLabel ? hourStr : ""}</div>`;
+      valueLabels += `<div style="flex:1;text-align:center;font-size:8px;font-family:var(--mono);color:${color};opacity:0.9;overflow:hidden;white-space:nowrap">${showLabel && displayAmt ? displayAmt : ""}</div>`;
+    });
+
+    const noDataNote = !hasGridData
+      ? `<div style="text-align:center;font-size:10px;font-family:var(--mono);color:var(--dim);padding:4px 0">Grid data unavailable — amounts not shown</div>`
+      : `<div style="display:flex;gap:10px;padding:2px 12px 0;font-size:9px;font-family:var(--mono);color:var(--dim)">
+           <span><span style="display:inline-block;width:8px;height:8px;border-radius:1px;background:#5b9bd5;margin-right:3px;vertical-align:middle"></span>rain (liquid in.)</span>
+           <span><span style="display:inline-block;width:8px;height:8px;border-radius:1px;background:#a8d8ea;margin-right:3px;vertical-align:middle"></span>snow (depth in.)</span>
+           <span><span style="display:inline-block;width:8px;height:8px;border-radius:1px;background:#c678dd;margin-right:3px;vertical-align:middle"></span>mix</span>
+           <span style="margin-left:auto;opacity:0.6">opacity = probability</span>
+         </div>`;
+
+    return `${pills}
+      <div class="precip-wrap" style="padding-top:0">
+        <div style="display:flex;gap:1px;margin-bottom:1px">${valueLabels}</div>
+        <div class="precip-bars">${bars}</div>
+        <div style="display:flex;gap:1px;margin-top:2px">${timeLabels}</div>
+        ${noDataNote}
+      </div>`;
+  }
+
+  // ── Wind band: SVG area between sustained and gust lines ──
+  if (mode === "wind") {
+    const sustained = hrs.map(h => parseWindSpeed(h.windSpeed));
+    // Prefer grid-sourced _windGust (more complete); fall back to hourly field
+    const gusts = hrs.map(h => h._windGust ?? parseWindSpeed(h.windGust));
+    const hasGusts = gusts.some(g => g > 0);
+    const allSpeeds = [...sustained, ...gusts];
+    const maxSpd = Math.max(...allSpeeds, 5);
+    const labelEvery = hrs.length <= 12 ? 2 : 4;
+    const VW = 400, VH = 52;
+    const padL = 0, padR = 0, padT = 4, padB = 0;
+    const pw = VW - padL - padR, ph = VH - padT - padB;
+    const sx = (i) => padL + (i / (hrs.length - 1 || 1)) * pw;
+    const sy = (v) => padT + ph - (v / maxSpd) * ph;
+    const color = "#8bc78b";
+    // Build polygon points: top edge = gusts (left→right), bottom edge = sustained (right→left)
+    const topPts    = gusts.map((g, i)     => `${sx(i)},${sy(g)}`);
+    const bottomPts = sustained.map((s, i) => `${sx(i)},${sy(s)}`).reverse();
+    const polygon   = [...topPts, ...bottomPts].join(" ");
+    const sustainedPath = sustained.map((s, i) => `${i === 0 ? "M" : "L"}${sx(i)},${sy(s)}`).join(" ");
+    const gustPath      = gusts.map((g, i)     => `${i === 0 ? "M" : "L"}${sx(i)},${sy(g)}`).join(" ");
+
+    // Build tooltip circles (invisible large hit targets)
+    let circles = "";
+    hrs.forEach((h, i) => {
+      const s = sustained[i], g = gusts[i];
+      const hourStr = new Date(h.startTime).toLocaleTimeString([], { hour: "numeric", hour12: true });
+      const tip = g > 0 ? `${hourStr}: ${s} mph · gusts ${g} mph` : `${hourStr}: ${s} mph`;
+      circles += `<circle cx="${sx(i)}" cy="${sy(s)}" r="5" fill="transparent" data-tt="${tip}"></circle>`;
+    });
+
+    // Build time and value labels below SVG
+    let timeLabels = "", valueLabels = "";
+    hrs.forEach((h, i) => {
+      const t = new Date(h.startTime);
+      const hourStr = t.toLocaleTimeString([], { hour: "numeric", hour12: true });
+      const showLabel = i % labelEvery === 0;
+      timeLabels  += `<div style="flex:1;text-align:center;font-size:9px;font-family:var(--mono);color:var(--dim);overflow:hidden;white-space:nowrap">${showLabel ? hourStr : ""}</div>`;
+      valueLabels += `<div style="flex:1;text-align:center;font-size:8px;font-family:var(--mono);color:${color};opacity:0.8;overflow:hidden;white-space:nowrap">${showLabel ? sustained[i] : ""}</div>`;
+    });
+
+    // Check if any gust data exists
+    const legend = hasGusts
+      ? `<div style="display:flex;gap:10px;padding:2px 12px 0;font-size:9px;font-family:var(--mono);color:var(--dim)">
+           <span><span style="display:inline-block;width:12px;height:2px;background:${color};vertical-align:middle;margin-right:3px"></span>sustained</span>
+           <span><span style="display:inline-block;width:12px;height:1px;background:${color};opacity:0.5;vertical-align:middle;margin-right:3px;border-top:1px dashed ${color}"></span>gusts</span>
+         </div>` : "";
+
+    return `${pills}
+      <div class="precip-wrap" style="padding-top:0" id="wind-spark-wrap">
+        <div style="display:flex;gap:1px;margin-bottom:1px">${valueLabels}</div>
+        <div style="position:relative;height:52px;padding:0 12px">
+          <svg viewBox="${padL} ${padT} ${VW} ${VH}" width="100%" height="52" preserveAspectRatio="none" style="overflow:visible">
+            ${hasGusts ? `<polygon points="${polygon}" fill="${color}" opacity="0.12"/>` : ""}
+            <path d="${sustainedPath}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+            ${hasGusts ? `<path d="${gustPath}" fill="none" stroke="${color}" stroke-width="1" stroke-dasharray="3,2" stroke-linejoin="round" stroke-linecap="round" opacity="0.6"/>` : ""}
+            ${circles}
+          </svg>
+        </div>
+        ${legend}
+        <div style="display:flex;gap:1px;margin-top:2px">${timeLabels}</div>
+      </div>`;
+  }
+
+  // ── Temp band: SVG line for actual temp + dashed windchill below ──
+  if (mode === "temp") {
+    const temps  = hrs.map(h => h.temperature || 0);
+    const chills = hrs.map((h, i) => {
+      const wc = windchillF(h);
+      return (wc != null && wc <= temps[i] - 2) ? wc : null;
+    });
+    const hasChills = chills.some(c => c != null);
+    const allVals = [...temps, ...chills.filter(c => c != null)];
+    const minT = Math.min(...allVals), maxT = Math.max(...allVals);
+    const range = maxT - minT || 1;
+    const labelEvery = hrs.length <= 12 ? 2 : 4;
+    const VW = 400, VH = 52;
+    const padL = 0, padR = 0, padT = 4, padB = 0;
+    const pw = VW - padL - padR, ph = VH - padT - padB;
+    const sx = i  => padL + (i / (hrs.length - 1 || 1)) * pw;
+    const sy = v  => padT + ph - ((v - minT) / range) * ph;
+    const color = "#d4c76a";
+
+    // Band polygon between temp (top) and windchill (bottom) — only where both exist
+    let bandPts = "";
+    if (hasChills) {
+      const topPts    = hrs.map((_, i) => `${sx(i)},${sy(temps[i])}`);
+      const bottomPts = [...hrs].map((_, i) => `${sx(i)},${sy(chills[i] ?? temps[i])}`).reverse();
+      bandPts = `<polygon points="${[...topPts, ...bottomPts].join(" ")}" fill="${color}" opacity="0.10"/>`;
+    }
+
+    const tempPath  = temps.map((t, i)  => `${i === 0 ? "M" : "L"}${sx(i)},${sy(t)}`).join(" ");
+    const chillPath = hasChills
+      ? chills.map((c, i) => `${i === 0 ? "M" : "L"}${sx(i)},${sy(c ?? temps[i])}`).join(" ")
+      : "";
+
+    // Tooltip circles on the temp line
+    let circles = "";
+    hrs.forEach((h, i) => {
+      const t = temps[i], wc = chills[i];
+      const hourStr = new Date(h.startTime).toLocaleTimeString([], { hour: "numeric", hour12: true });
+      const tip = wc != null ? `${hourStr}: ${t}° · feels ${wc}°` : `${hourStr}: ${t}°`;
+      circles += `<circle cx="${sx(i)}" cy="${sy(t)}" r="5" fill="transparent" data-tt="${tip}"></circle>`;
+    });
+
+    let timeLabels = "", valueLabels = "";
+    hrs.forEach((h, i) => {
+      const hourStr = new Date(h.startTime).toLocaleTimeString([], { hour: "numeric", hour12: true });
+      const showLabel = i % labelEvery === 0;
+      timeLabels  += `<div style="flex:1;text-align:center;font-size:9px;font-family:var(--mono);color:var(--dim);overflow:hidden;white-space:nowrap">${showLabel ? hourStr : ""}</div>`;
+      valueLabels += `<div style="flex:1;text-align:center;font-size:8px;font-family:var(--mono);color:${tempColor(temps[i])};opacity:0.8;overflow:hidden;white-space:nowrap">${showLabel ? temps[i] + "°" : ""}</div>`;
+    });
+
+    const legend = hasChills
+      ? `<div style="display:flex;gap:10px;padding:2px 12px 0;font-size:9px;font-family:var(--mono);color:var(--dim)">
+           <span><span style="display:inline-block;width:12px;height:2px;background:${color};vertical-align:middle;margin-right:3px"></span>actual</span>
+           <span><span style="display:inline-block;width:12px;border-top:1px dashed ${color};opacity:0.6;vertical-align:middle;margin-right:3px"></span>feels like</span>
+         </div>` : "";
+
+    return `${pills}
+      <div class="precip-wrap" style="padding-top:0">
+        <div style="display:flex;gap:1px;margin-bottom:1px">${valueLabels}</div>
+        <div style="position:relative;height:52px;padding:0 12px">
+          <svg viewBox="${padL} ${padT} ${VW} ${VH}" width="100%" height="52" preserveAspectRatio="none" style="overflow:visible">
+            ${bandPts}
+            <path d="${tempPath}"  fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+            ${hasChills ? `<path d="${chillPath}" fill="none" stroke="${color}" stroke-width="1" stroke-dasharray="3,2" stroke-linejoin="round" stroke-linecap="round" opacity="0.55"/>` : ""}
+            ${circles}
+          </svg>
+        </div>
+        ${legend}
+        <div style="display:flex;gap:1px;margin-top:2px">${timeLabels}</div>
+      </div>`;
+  }
+
+  // ── Default bar chart (precip %, sky cover) ──
+  const vals = hrs.map(metric.extract);
+  const maxV = Math.max(...vals, 1);
+  const minV = mode === "temp" ? Math.min(...vals) : 0;
+  const range = maxV - minV || 1;
+
+  const labelEvery = hrs.length <= 12 ? 2 : 4;
+
+  let bars = "";
+  let timeLabels = "";
+  let valueLabels = "";
+  hrs.forEach((h, i) => {
+    const val = metric.extract(h);
+    const pct = ((val - minV) / range) * 100;
+    const intensity = pct / 100;
+    const bg = intensity > 0.5 ? metric.color : intensity > 0.2 ? metric.color + "80" : metric.color + "26";
+    const t = new Date(h.startTime);
+    const hourStr = t.toLocaleTimeString([], { hour: "numeric", hour12: true });
+    const showLabel = i % labelEvery === 0;
+    const displayVal = mode === "temp" ? `${val}°` : `${Math.round(val)}`;
+
+    bars += `<div class="precip-bar" style="height:${Math.max(2, pct)}%;background:${bg}" data-tip="${hourStr}: ${val}${metric.unit}"></div>`;
+    timeLabels += `<div style="flex:1;text-align:center;font-size:9px;font-family:var(--mono);color:var(--dim);overflow:hidden;white-space:nowrap">${showLabel ? hourStr : ""}</div>`;
+    valueLabels += `<div style="flex:1;text-align:center;font-size:8px;font-family:var(--mono);color:${metric.color};opacity:0.8;overflow:hidden;white-space:nowrap">${showLabel ? displayVal : ""}</div>`;
+  });
+
+  return `${pills}
+    <div class="precip-wrap" style="padding-top:0">
+      <div style="display:flex;gap:1px;margin-bottom:1px">${valueLabels}</div>
+      <div class="precip-bars">${bars}</div>
+      <div style="display:flex;gap:1px;margin-top:2px">${timeLabels}</div>
+    </div>`;
+}
+
+// --- Open-Meteo ECMWF Extended Forecast ---
+
+async function fetchOpenMeteo(lat, lon) {
+  // ECMWF IFS — dedicated endpoint, no API key, CORS native
+  const url = `https://api.open-meteo.com/v1/ecmwf?latitude=${lat}&longitude=${lon}` +
+    `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,snowfall_sum,wind_speed_10m_max,wind_gusts_10m_max` +
+    `&temperature_unit=fahrenheit&precipitation_unit=inch&wind_speed_unit=mph` +
+    `&forecast_days=16&timezone=auto`;
+  try {
+    // Use Promise.race for timeout — broader browser compatibility than AbortSignal.timeout
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 12000));
+    const r = await Promise.race([fetch(url), timeout]);
+    if (!r.ok) return null;
+    const data = await r.json();
+    const d = data.daily;
+    if (!d?.time) return null;
+    const elevFt = data.elevation != null ? Math.round(data.elevation * 3.28084) : null;
+    return {
+      elevFt,
+      days: d.time.map((date, i) => ({
+        date,
+        tmax:     Math.round(d.temperature_2m_max[i]     ?? 0),
+        tmin:     Math.round(d.temperature_2m_min[i]     ?? 0),
+        precip:   d.precipitation_sum[i]                 ?? 0,
+        snow:     d.snowfall_sum[i]                       ?? 0,
+        windMax:  Math.round(d.wind_speed_10m_max[i]     ?? 0),
+        windGust: Math.round(d.wind_gusts_10m_max[i]     ?? 0),
+      })),
+    };
+  } catch { return null; }
+}
+
+function renderECMWFRows(ecmwfDays, noaaDaily) {
+  if (!ecmwfDays || ecmwfDays.length === 0) return "";
+  // Find where NOAA coverage ends — skip ECMWF days that overlap with NOAA
+  const noaaDates = new Set((noaaDaily || []).map(p => p.startTime.slice(0, 10)));
+  // ECMWF days beyond NOAA coverage
+  const extended = ecmwfDays.filter(d => !noaaDates.has(d.date));
+  if (extended.length === 0) return "";
+
+  const rows = extended.map(d => {
+    const dt = new Date(d.date + "T12:00:00"); // noon local avoids DST edge
+    const dayName = dt.toLocaleDateString([], { weekday: "short", month: "numeric", day: "numeric" });
+    const tMaxColor = tempColor(d.tmax);
+    const tMinColor = tempColor(d.tmin);
+
+    // Precip display — no probability from ECMWF IFS, show amount + type only
+    let precipStr = "";
+    if (d.precip >= 0.01) {
+      const typeStr = d.snow >= 0.1 ? ` ❄ ${d.snow.toFixed(1)}"` : " 🌧";
+      precipStr = `${d.precip.toFixed(2)}"${typeStr}`;
+    } else if (d.snow >= 0.1) {
+      precipStr = `❄ ${d.snow.toFixed(1)}"`;
+    } else {
+      precipStr = `—`;
+    }
+
+    const windStr = d.windGust > d.windMax + 2
+      ? `${d.windMax}/${d.windGust} mph`
+      : `${d.windMax} mph`;
+
+    return `<div class="ecmwf-row">
+      <div class="ecmwf-grid">
+        <span class="ecmwf-name">${esc(dayName)}</span>
+        <span class="ecmwf-temps">
+          <span style="color:${tMaxColor}">${d.tmax}°</span>
+          <span style="color:rgba(255,255,255,0.25);margin:0 2px">/</span>
+          <span style="color:${tMinColor};opacity:0.7">${d.tmin}°</span>
+        </span>
+        <span class="ecmwf-precip">${esc(precipStr)}</span>
+        <span class="ecmwf-wind">${esc(windStr)}</span>
+      </div>
+    </div>`;
+  }).join("");
+
+  return `<div class="ecmwf-divider">
+    <div class="ecmwf-divider-line"></div>
+    <span class="ecmwf-divider-label">ECMWF IFS · days 8–16</span>
+    <div class="ecmwf-divider-line"></div>
+  </div>${rows}`;
+}
+
+// --- Render ---
+function renderCard(loc, index) {
+  const key = locKey(loc);
+  const data = weatherData[key];
+  const isLoading = loadingSet.has(key);
+  const error = errors[key];
+
+  let headerMeta = "";
+  if (data) {
+    headerMeta = `<div class="card-meta">${data.city ? esc(data.city) + ", " + esc(data.state) + " · " : ""}${esc(data.gridId)}${data.elevation != null ? " · " + data.elevation + " ft" : ""}</div>`;
+  }
+
+  let tabs = "";
+
+  let sparkline = "";
+  let body = "";
+  if (isLoading) {
+    body = `<div class="loading-msg">Fetching forecast…</div>`;
+  } else if (error) {
+    body = `<div class="error-msg"><div>${esc(error)}</div><button class="btn-retry" onclick="retryLocation(${index})">↻ Retry</button></div>`;
+  } else if (data) {
+    const temps = data.daily.map(p => p.temperature);
+    const min = Math.min(...temps), max = Math.max(...temps);
+    sparkline = sparklineHtml(data.hourly, data.daily);
+    data.daily.forEach((p, pi) => {
+      const night = p.isDaytime === false;
+      const rowId = `${key}__${pi}`;
+      const isOpen = allExpanded || expandedRows.has(rowId);
+      const isSelected = selectedDayIndex === pi;
+      const cls = ["daily-row", night ? "night" : "", isSelected ? "selected" : ""].filter(Boolean).join(" ");
+      body += `<div class="${cls}" onclick="selectDay(${pi}, '${rowId}')">
+        <div class="daily-grid">
+          <div class="daily-name">${esc(p.name)}${isSelected ? ' <span style="font-size:9px;color:var(--accent);font-weight:400">● hourly</span>' : ""}</div>
+          ${weatherIcon(p.shortForecast, 20)}
+          ${tempBarHtml(p.temperature, min, max, night, false)}
+          ${windHtml(p.windDirection, p.windSpeed)}
+        </div>
+        <div class="daily-detail${isOpen ? " open" : ""}">${esc(p.detailedForecast || p.shortForecast)}</div>
+      </div>`;
+    });
+    // ECMWF extended days (8-16) after the NOAA daily rows
+    body += renderECMWFRows(data.ecmwfDays, data.daily);
+  }
+
+  let footer = "";
+  if (data) {
+    footer = `<div class="card-footer">Updated: ${new Date(data.updated).toLocaleString()}</div>`;
+  }
+
+  return `<div class="card">
+    <div class="card-header">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div>
+          <div class="card-title"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${LOC_COLORS[index % LOC_COLORS.length]};margin-right:6px;vertical-align:middle"></span>${esc(loc.name)}</div>
+          ${headerMeta}
+          <div class="card-coords">${loc.lat.toFixed(4)}, ${loc.lon.toFixed(4)}${data && data.elevation != null ? " · " + data.elevation + " ft" : ""} · <a class="noaa-link" href="https://forecast.weather.gov/MapClick.php?lat=${loc.lat}&lon=${loc.lon}" target="_blank" rel="noopener">NOAA page ↗</a></div>
+        </div>
+        <button class="card-close" onclick="removeLocation(${index})" title="Remove">×</button>
+      </div>
+      ${tabs}
+    </div>
+    <div class="card-body">${sparkline ? `<div class="card-sparkline">${sparkline}</div>` : ""}${body}</div>
+    ${footer}
+  </div>`;
+}
+
+// --- Comparison Chart ---
+
+function renderCompChart() {
+  const el = document.getElementById("compChart");
+  // Only show when 2+ locations have data
+  const locsWithData = locations.filter(l => weatherData[locKey(l)]);
+  if (locsWithData.length < 2) { el.innerHTML = ""; return; }
+
+  const mode = globalSparkMode;
+  const metric = SPARK_METRICS.find(m => m.id === mode) || SPARK_METRICS[0];
+
+  // Gather data series per location — always use FULL hourly range, never linked to day selection
+  const allSeries = locsWithData.map((loc) => {
+    const mainIndex = locations.indexOf(loc);
+    const data = weatherData[locKey(loc)];
+    const vals  = data.hourly.map(h => ({ time: new Date(h.startTime), val: metric.extract(h),
+                                          val2: metric.extract2 ? metric.extract2(h) : null,
+                                          h }));    return { name: loc.name, color: LOC_COLORS[mainIndex % LOC_COLORS.length], vals, key: locKey(loc) };
+  });
+
+  // Only render lines/dots for visible locations
+  const series = allSeries.filter(s => !hiddenChartLocs.has(s.key));
+
+  // For Y-axis: wind/temp band uses both primary + secondary; precip-amt uses amount only
+  const allVals = series.flatMap(s => s.vals.flatMap(v =>
+    (metric.type === "band" || metric.type === "temp-band")
+      ? [v.val, ...(v.val2 != null ? [v.val2] : [])]
+      : [v.val]
+  ));
+  const allTimes = [...new Set(series.flatMap(s => s.vals.map(v => v.time.getTime())))].sort((a,b) => a-b);
+  if (allVals.length === 0 || allTimes.length === 0) { el.innerHTML = ""; return; }
+
+  let minVal = Math.min(...allVals);
+  let maxVal = Math.max(...allVals);
+  if (mode === "precip-amt") { minVal = 0; maxVal = Math.max(maxVal, 0.05); } // force 0 baseline
+  if (minVal === maxVal) { minVal -= 1; maxVal += 1; }
+  const valPad = (maxVal - minVal) * 0.1;
+  minVal -= valPad; maxVal += valPad;
+  if (mode === "precip-amt") minVal = 0; // keep 0 baseline after padding
+
+  const minTime = allTimes[0];
+  const maxTime = allTimes[allTimes.length - 1];
+  const timeRange = maxTime - minTime || 1;
+
+  // SVG dimensions — extra padB for two-row X axis (time + day)
+  const W = 800, H = 138;
+  const padL = 40, padR = 16, padT = 8, padB = 38;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+
+  function x(t) { return padL + ((t - minTime) / timeRange) * plotW; }
+  function y(v) { return padT + plotH - ((v - minVal) / (maxVal - minVal)) * plotH; }
+
+  const timeRowY = padT + plotH + 12;
+  const dayRowY  = padT + plotH + 24;
+
+  // Build Y-axis labels
+  const ySteps = 4;
+  let yLabels = "";
+  for (let i = 0; i <= ySteps; i++) {
+    const v = minVal + (maxVal - minVal) * (i / ySteps);
+    const label = mode === "temp"       ? `${Math.round(v)}°`
+                : mode === "precip-amt" ? `${v.toFixed(2)}"`
+                :                         `${Math.round(v)}`;
+    yLabels += `<text x="${padL - 6}" y="${y(v)}" text-anchor="end" fill="#7d8590" font-size="9" font-family="var(--mono)" dominant-baseline="middle">${label}</text>`;
+    yLabels += `<line x1="${padL}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}" stroke="rgba(255,255,255,0.04)" />`;
+  }
+
+  // Build two-row X axis: hour ticks every 6h + day banners + midnight separators
+  let xLabels = "";
+  const dayGroups = new Map();
+  allTimes.forEach(t => {
+    const d = new Date(t);
+    const key = d.toLocaleDateString();
+    if (!dayGroups.has(key)) dayGroups.set(key, { times: [], label: d.toLocaleDateString([], { weekday: "short", month: "numeric", day: "numeric" }) });
+    dayGroups.get(key).times.push(t);
+  });
+  dayGroups.forEach((group) => {
+    const minT = group.times[0];
+    const maxT = group.times[group.times.length - 1];
+    const midX = (x(minT) + x(maxT)) / 2;
+    const startX = x(minT);
+    if (startX > padL + 4) {
+      xLabels += `<line x1="${startX}" x2="${startX}" y1="${padT}" y2="${padT + plotH + 28}" stroke="rgba(255,255,255,0.07)" />`;
+    }
+    xLabels += `<text x="${midX}" y="${dayRowY}" text-anchor="middle" fill="#7d8590" font-size="9" font-family="var(--mono)">${group.label}</text>`;
+  });
+  const totalHours = (maxTime - minTime) / 3600000;
+  const showHourLabel = totalHours <= 72 ? h => h % 6 === 0 : h => h % 12 === 0;
+  allTimes.forEach(t => {
+    const d = new Date(t);
+    if (showHourLabel(d.getHours())) {
+      const hr = d.toLocaleTimeString([], { hour: "numeric", hour12: true });
+      xLabels += `<text x="${x(t)}" y="${timeRowY}" text-anchor="middle" fill="rgba(125,133,144,0.65)" font-size="8" font-family="var(--mono)">${hr}</text>`;
+    }
+  });
+
+  // Build lines, bands, and dots per series
+  let paths = "";
+  series.forEach(s => {
+    if (s.vals.length === 0) return;
+    const color = s.color;
+
+    if (metric.type === "band") {
+      // Wind band: filled polygon between gust (top) and sustained (bottom)
+      const topPts    = s.vals.map(v => `${x(v.time.getTime())},${y(v.val2 ?? v.val)}`);
+      const bottomPts = [...s.vals].reverse().map(v => `${x(v.time.getTime())},${y(v.val)}`);
+      paths += `<polygon points="${[...topPts, ...bottomPts].join(" ")}" fill="${color}" opacity="0.10"/>`;
+      paths += `<polyline points="${s.vals.map(v => `${x(v.time.getTime())},${y(v.val)}`).join(" ")}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" opacity="0.85"/>`;
+      paths += `<polyline points="${s.vals.map(v => `${x(v.time.getTime())},${y(v.val2 ?? v.val)}`).join(" ")}" fill="none" stroke="${color}" stroke-width="1" stroke-dasharray="4,3" stroke-linejoin="round" stroke-linecap="round" opacity="0.5"/>`;
+      s.vals.forEach(v => {
+        const cx = x(v.time.getTime()), cy = y(v.val);
+        const d = v.time;
+        const dayLabel  = d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+        const timeLabel = d.toLocaleTimeString([], { hour: "numeric", hour12: true });
+        const gust = v.val2 ?? 0;
+        const tip = gust > 0
+          ? `${s.name}: ${dayLabel} ${timeLabel} — ${v.val} mph · gusts ${gust} mph`
+          : `${s.name}: ${dayLabel} ${timeLabel} — ${v.val} mph`;
+        paths += `<circle cx="${cx}" cy="${cy}" r="3" fill="${color}" opacity="0.75" style="cursor:crosshair" data-tt="${tip.replace(/"/g,'&quot;')}"></circle>`;
+      });
+
+    } else if (metric.type === "temp-band") {
+      // Temp band: solid actual temp line, dashed windchill below
+      const valsWithChill = s.vals.filter(v => v.val2 != null && v.val2 <= v.val - 2);
+      const hasChills = valsWithChill.length > 0;
+      if (hasChills) {
+        const topPts    = s.vals.map(v => `${x(v.time.getTime())},${y(v.val)}`);
+        const bottomPts = [...s.vals].reverse().map(v => `${x(v.time.getTime())},${y(v.val2 ?? v.val)}`);
+        paths += `<polygon points="${[...topPts, ...bottomPts].join(" ")}" fill="${color}" opacity="0.08"/>`;
+        paths += `<polyline points="${s.vals.map(v => `${x(v.time.getTime())},${y(v.val2 ?? v.val)}`).join(" ")}" fill="none" stroke="${color}" stroke-width="1" stroke-dasharray="4,3" stroke-linejoin="round" stroke-linecap="round" opacity="0.5"/>`;
+      }
+      paths += `<polyline points="${s.vals.map(v => `${x(v.time.getTime())},${y(v.val)}`).join(" ")}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" opacity="0.85"/>`;
+      s.vals.forEach(v => {
+        const cx = x(v.time.getTime()), cy = y(v.val);
+        const d = v.time;
+        const dayLabel  = d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+        const timeLabel = d.toLocaleTimeString([], { hour: "numeric", hour12: true });
+        const wc = (v.val2 != null && v.val2 <= v.val - 2) ? v.val2 : null;
+        const tip = wc != null
+          ? `${s.name}: ${dayLabel} ${timeLabel} — ${v.val}° · feels ${wc}°`
+          : `${s.name}: ${dayLabel} ${timeLabel} — ${v.val}°`;
+        paths += `<circle cx="${cx}" cy="${cy}" r="3" fill="${color}" opacity="0.75" style="cursor:crosshair" data-tt="${tip.replace(/"/g,'&quot;')}"></circle>`;
+      });
+
+    } else if (metric.type === "precip-amt") {
+      // Precip In.: line height = rain or snow amount, dot opacity = probability, dot color by type
+      paths += `<polyline points="${s.vals.map(v => `${x(v.time.getTime())},${y(v.val)}`).join(" ")}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" opacity="0.85"/>`;
+      s.vals.forEach(v => {
+        const cx = x(v.time.getTime()), cy = y(v.val);
+        const prob = v.val2 ?? 0;
+        const dotOpacity = prob > 0 ? Math.max(0.2, prob / 100) : 0.15;
+        const snow = v.h._snowAmt ?? 0;
+        const dotColor = snow > 0 ? "#a8d8ea" : color;
+        const d = v.time;
+        const dayLabel  = d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+        const timeLabel = d.toLocaleTimeString([], { hour: "numeric", hour12: true });
+        const unit = snow > 0 ? '" snow' : '" rain';
+        const amtStr = v.val >= 0.01 ? v.val.toFixed(2) + unit : v.val > 0 ? "T" : '0"';
+        const tip = `${s.name}: ${dayLabel} ${timeLabel} — ${amtStr} · ${Math.round(prob)}% chance`;
+        paths += `<circle cx="${cx}" cy="${cy}" r="3" fill="${dotColor}" opacity="${dotOpacity.toFixed(2)}" style="cursor:crosshair" data-tt="${tip.replace(/"/g,'&quot;')}"></circle>`;
+      });
+
+    } else {
+      // Default: plain line + uniform dots
+      paths += `<polyline points="${s.vals.map(v => `${x(v.time.getTime())},${y(v.val)}`).join(" ")}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" opacity="0.85"/>`;
+      s.vals.forEach(v => {
+        const cx = x(v.time.getTime()), cy = y(v.val);
+        const label = mode === "temp" ? `${v.val}°` : `${Math.round(v.val)}${metric.unit}`;
+        const d = v.time;
+        const dayLabel  = d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+        const timeLabel = d.toLocaleTimeString([], { hour: "numeric", hour12: true });
+        paths += `<circle cx="${cx}" cy="${cy}" r="3" fill="${color}" opacity="0.75" style="cursor:crosshair" data-tt="${`${s.name}: ${dayLabel} ${timeLabel} — ${label}`.replace(/"/g,'&quot;')}"></circle>`;
+      });
+    }
+  });
+
+  // Chart legend note for wind band
+  const bandNote = metric.type === "band"
+    ? `<span style="font-size:9px;font-family:var(--mono);color:var(--dim);margin-left:8px">— sustained &nbsp; ╌ gusts</span>`
+    : metric.type === "temp-band"
+    ? `<span style="font-size:9px;font-family:var(--mono);color:var(--dim);margin-left:8px">— actual &nbsp; ╌ feels like</span>`
+    : metric.type === "precip-amt"
+    ? `<span style="font-size:9px;font-family:var(--mono);color:var(--dim);margin-left:8px">height = rain/snow in. · dot opacity = probability</span>`
+    : "";
+
+  // Legend shows ALL locations (dimmed + strikethrough when hidden) — click to toggle
+  let legend = "";
+  allSeries.forEach(s => {
+    const shortName = s.name.split(",")[0].trim();
+    const isHidden = hiddenChartLocs.has(s.key);
+    legend += `<span class="comp-legend-item" onclick="toggleChartLoc('${s.key}')" title="${isHidden ? 'Click to show' : 'Click to hide'}" style="cursor:pointer;opacity:${isHidden ? 0.3 : 1};text-decoration:${isHidden ? 'line-through' : 'none'}"><span class="comp-legend-dot" style="background:${s.color}"></span>${esc(shortName)}</span>`;
+  });
+
+  el.innerHTML = `<div class="comp-chart">
+    <div class="comp-chart-header">
+      <span class="comp-chart-title">COMPARISON</span>
+      ${SPARK_METRICS.map(m => `<button class="spark-pill${mode === m.id ? " active" : ""}" onclick="setSparkMode('${m.id}')">${m.label}</button>`).join("")}
+      ${bandNote}
+      <button id="compChartToggleBtn" class="comp-chart-toggle" onclick="toggleCompChart()">${compChartCollapsed ? "▸ show" : "▾ hide"}</button>
+    </div>
+    <div id="compChartBody" class="comp-chart-body${compChartCollapsed ? " collapsed" : ""}">
+      <svg class="comp-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+        ${yLabels}
+        ${xLabels}
+        ${paths}
+      </svg>
+      <div class="comp-legend">${legend}</div>
+    </div>
+  </div>`;
+}
+
+function render() {
+  const el = document.getElementById("content");
+  renderCompChart();
+  if (locations.length === 0) {
+    el.innerHTML = `<div class="empty"><div class="big">☁︎</div><div style="font-size:15px;color:var(--dim);margin-bottom:8px">No locations added yet</div><div style="font-size:12px;font-family:var(--mono);color:rgba(255,255,255,0.2)">Search for a location above or use the presets to get started</div></div>`;
+    return;
+  }
+  el.innerHTML = `<div class="grid">${locations.map((loc, i) => renderCard(loc, i)).join("")}</div>`;
+  attachSyncScroll();
+}
+
+// --- Synced Scrolling ---
+let _syncingScroll = false;
+function attachSyncScroll() {
+  const bodies = document.querySelectorAll(".card-body");
+  bodies.forEach(el => {
+    el.addEventListener("scroll", () => {
+      if (_syncingScroll) return;
+      _syncingScroll = true;
+      const top = el.scrollTop;
+      bodies.forEach(other => { if (other !== el) other.scrollTop = top; });
+      _syncingScroll = false;
+    });
+    // Restore last known scroll position
+    el.scrollTop = _lastScrollTop;
+  });
+}
+let _lastScrollTop = 0;
+// Track scroll position so it persists across re-renders
+document.addEventListener("scroll", (e) => {
+  if (e.target.classList && e.target.classList.contains("card-body")) {
+    _lastScrollTop = e.target.scrollTop;
+  }
+}, true);
+
+function setView(key, v) { views[key] = v; render(); }
+function setSparkMode(mode) { globalSparkMode = mode; render(); }
+function selectDay(dayIndex, rowId) {
+  if (selectedDayIndex === dayIndex) {
+    // Deselect: collapse all for this period and reset sparkline
+    selectedDayIndex = null;
+    // Remove expanded rows for this period index across all locations
+    locations.forEach(loc => {
+      expandedRows.delete(`${locKey(loc)}__${dayIndex}`);
+    });
+  } else {
+    // If switching from another day, collapse old period rows
+    if (selectedDayIndex != null) {
+      locations.forEach(loc => {
+        expandedRows.delete(`${locKey(loc)}__${selectedDayIndex}`);
+      });
+    }
+    selectedDayIndex = dayIndex;
+    // Expand this period across all locations
+    locations.forEach(loc => {
+      expandedRows.add(`${locKey(loc)}__${dayIndex}`);
+    });
+  }
+  allExpanded = false;
+  updateExpandBtn();
+  render();
+}
+function clearDaySelection() {
+  if (selectedDayIndex != null) {
+    locations.forEach(loc => {
+      expandedRows.delete(`${locKey(loc)}__${selectedDayIndex}`);
+    });
+  }
+  selectedDayIndex = null;
+  render();
+}
+function toggleExpandAll() {
+  allExpanded = !allExpanded;
+  expandedRows.clear();
+  updateExpandBtn();
+  render();
+}
+function updateExpandBtn() {
+  const btn = document.getElementById("expandAllBtn");
+  if (btn) btn.textContent = allExpanded ? "▾ Collapse All" : "▸ Expand All";
+}
+function retryLocation(index) { fetchForLocation(locations[index]); }
+
+// --- Keyboard Navigation ---
+function getMaxDayIndex() {
+  for (const loc of locations) {
+    const data = weatherData[locKey(loc)];
+    if (data && data.daily) return data.daily.length - 1;
+  }
+  return 9;
+}
+
+function navigateDay(direction) {
+  const maxIdx = getMaxDayIndex();
+  if (selectedDayIndex == null) {
+    // Enter selection mode
+    selectedDayIndex = direction > 0 ? 0 : maxIdx;
+  } else {
+    const newIdx = selectedDayIndex + direction;
+    if (newIdx < 0 || newIdx > maxIdx) return; // at boundary, do nothing
+    // Collapse old
+    locations.forEach(loc => {
+      expandedRows.delete(`${locKey(loc)}__${selectedDayIndex}`);
+    });
+    selectedDayIndex = newIdx;
+  }
+  // Expand new
+  locations.forEach(loc => {
+    expandedRows.add(`${locKey(loc)}__${selectedDayIndex}`);
+  });
+  allExpanded = false;
+  updateExpandBtn();
+  render();
+
+  // Scroll the selected row into view in each card
+  requestAnimationFrame(() => {
+    document.querySelectorAll(".daily-row.selected").forEach(el => {
+      el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
+  });
+}
+
+document.addEventListener("keydown", (e) => {
+  // Don't capture when typing in the search box
+  if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+  if (e.key === "ArrowDown") { e.preventDefault(); navigateDay(1); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); navigateDay(-1); }
+  else if (e.key === "Escape" && selectedDayIndex != null) { e.preventDefault(); clearDaySelection(); }
+});
+
+// --- Shared tooltip (event delegation — covers comp chart + wind band sparklines) ---
+(function () {
+  const tt = document.createElement("div");
+  tt.id = "chart-tooltip";
+  tt.style.cssText = [
+    "position:fixed",
+    "background:#1c2129",
+    "border:1px solid rgba(255,255,255,0.12)",
+    "color:#e6edf3",
+    "font-size:10px",
+    "font-family:'JetBrains Mono',monospace",
+    "padding:4px 9px",
+    "border-radius:5px",
+    "pointer-events:none",
+    "z-index:200",
+    "white-space:nowrap",
+    "box-shadow:0 4px 14px rgba(0,0,0,0.5)",
+    "display:none",
+  ].join(";");
+  document.body.appendChild(tt);
+
+  // Listen on whole document — covers both comp chart and per-card sparklines
+  document.addEventListener("mouseover", e => {
+    const c = e.target.closest("circle[data-tt]");
+    if (c) { tt.textContent = c.dataset.tt; tt.style.display = "block"; }
+    else tt.style.display = "none";
+  });
+  document.addEventListener("mousemove", e => {
+    if (tt.style.display !== "none") {
+      tt.style.left = (e.clientX + 14) + "px";
+      tt.style.top  = (e.clientY - 34) + "px";
+    }
+  });
+})();
+
+// --- Init ---
+locations = loadLocations();
+render();
+if (locations.length > 0) setTimeout(() => locations.forEach(fetchForLocation), 0);
+</script>
+</body>
+</html>
