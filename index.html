@@ -182,7 +182,8 @@
 <script>
 const PRESETS_KEY = "noaa-dashboard-presets";
 const DEFAULT_PRESETS = [
-  { name: "Standley Lake, CO", lat: 39.8308, lon: -105.1100 },
+  { name: "Chautauqua Park, Boulder CO", lat: 39.87976, lon: -105.11267 },
+  { name: "South Boulder Peak, Boulder CO", lat: 39.9493, lon: -105.2390 },
   { name: "Rocky Mtn NP – Bear Lake", lat: 40.3128, lon: -105.6458 },
   { name: "Zion NP – Springdale", lat: 37.1890, lon: -112.9983 },
   { name: "Grand Canyon – South Rim", lat: 36.0544, lon: -112.1401 },
@@ -530,6 +531,14 @@ function removeLocation(index) {
 
 // --- Helpers ---
 function esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+
+// Format a Date as Mountain Time (MT), e.g. "11:52 AM"
+function fmtMT(date) {
+  return date.toLocaleTimeString("en-US", {
+    hour: "numeric", minute: "2-digit", hour12: true,
+    timeZone: "America/Denver"
+  });
+}
 
 function tempColor(t) {
   if (t <= 32) return "#7eb8da";
@@ -924,12 +933,12 @@ async function fetchOpenMeteo(lat, lon) {
       sunTimes,
       days: d.time.map((date, i) => ({
         date,
-        tmax:     Math.round(d.temperature_2m_max[i]     ?? 0),
-        tmin:     Math.round(d.temperature_2m_min[i]     ?? 0),
-        precip:   d.precipitation_sum[i]                 ?? 0,
-        snow:     d.snowfall_sum[i]                       ?? 0,
-        windMax:  Math.round(d.wind_speed_10m_max[i]     ?? 0),
-        windGust: Math.round(d.wind_gusts_10m_max[i]     ?? 0),
+        tmax:     d.temperature_2m_max[i]     != null ? Math.round(d.temperature_2m_max[i])     : null,
+        tmin:     d.temperature_2m_min[i]     != null ? Math.round(d.temperature_2m_min[i])     : null,
+        precip:   d.precipitation_sum[i]      ?? 0,
+        snow:     d.snowfall_sum[i]            ?? 0,
+        windMax:  d.wind_speed_10m_max[i]     != null ? Math.round(d.wind_speed_10m_max[i])     : null,
+        windGust: d.wind_gusts_10m_max[i]     != null ? Math.round(d.wind_gusts_10m_max[i])     : null,
       })),
     };
   } catch { return null; }
@@ -940,7 +949,7 @@ function renderECMWFRows(ecmwfDays, noaaDaily) {
   // Find where NOAA coverage ends — skip ECMWF days that overlap with NOAA
   const noaaDates = new Set((noaaDaily || []).map(p => p.startTime.slice(0, 10)));
   // ECMWF days beyond NOAA coverage
-  const extended = ecmwfDays.filter(d => !noaaDates.has(d.date));
+  const extended = ecmwfDays.filter(d => !noaaDates.has(d.date) && d.tmax != null && d.tmin != null);
   if (extended.length === 0) return "";
 
   const rows = extended.map(d => {
@@ -978,11 +987,7 @@ function renderECMWFRows(ecmwfDays, noaaDaily) {
     </div>`;
   }).join("");
 
-  return `<div class="ecmwf-divider">
-    <div class="ecmwf-divider-line"></div>
-    <span class="ecmwf-divider-label">ECMWF IFS · days 8–16</span>
-    <div class="ecmwf-divider-line"></div>
-  </div>${rows}`;
+  return `<div style="padding:5px 12px 3px;font-size:9px;font-family:var(--mono);color:rgba(255,255,255,0.38);letter-spacing:0.04em;margin-top:4px">Days 8–16 · ECMWF IFS · less precise, directionally useful</div>${rows}`;
 }
 
 // Moon phase — pure math, no API needed
@@ -1032,6 +1037,12 @@ function renderCard(loc, index) {
     const temps = data.daily.map(p => p.temperature);
     const min = Math.min(...temps), max = Math.max(...temps);
     sparkline = sparklineHtml(data.hourly, data.daily);
+
+    // NOAA source label with MT timestamp
+    const noaaTime = data.updated ? fmtMT(new Date(data.updated)) : null;
+    body += `<div style="padding:5px 12px 3px;font-size:9px;font-family:var(--mono);color:rgba(255,255,255,0.38);letter-spacing:0.04em">
+      Days 1–7 · NOAA National Weather Service${noaaTime ? ` · generated ${noaaTime} MT` : ""}
+    </div>`;
     data.daily.forEach((p, pi) => {
       const night = p.isDaytime === false;
       const rowId = `${key}__${pi}`;
