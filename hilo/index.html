@@ -1107,13 +1107,40 @@ function toggleRadar(index) {
 
 function radarSection(loc, index) {
   const isOpen = radarOpen.has(locKey(loc));
-  const btn = `<button onclick="toggleRadar(${index})" style="display:block;width:100%;text-align:left;padding:7px 12px;font-size:10px;font-family:var(--mono);letter-spacing:0.04em;background:transparent;border:none;color:${isOpen ? "var(--accent)" : "var(--dim)"};cursor:pointer">${isOpen ? "▾ RADAR — live (tap to close)" : "▸ RADAR — tap to load live view"}</button>`;
+  const btn = `<button onclick="toggleRadar(${index})" style="display:block;width:100%;text-align:left;padding:8px 12px;font-size:11px;font-family:var(--mono);font-weight:700;letter-spacing:0.04em;background:transparent;border:none;color:var(--accent);cursor:pointer">${isOpen ? "▾ RADAR — live (tap to close)" : "▸ RADAR — tap to load live view"}</button>`;
   const frame = isOpen
     ? `<iframe src="https://embed.windy.com/embed2.html?lat=${loc.lat}&lon=${loc.lon}&detailLat=${loc.lat}&detailLon=${loc.lon}&zoom=11&overlay=radar&level=surface&marker=true&menu=&message=&calendar=now&type=map&metricWind=mph&metricTemp=%C2%B0F" width="100%" height="220" frameborder="0" loading="lazy" style="display:block;border:0"></iframe>`
     : "";
   return `<div style="border-top:1px solid rgba(255,255,255,0.05)">${btn}${frame}</div>`;
 }
 // ════════════════════ RADAR EMBED — END ════════════════════
+
+// ════════════════════ METEOGRAM EMBED — BEGIN ════════════════════
+// In-card Windy meteogram (point forecast), loaded only when tapped.
+// This is a TEST — Windy's embedded meteogram may show a fixed ~5-day window
+// with limited controls. TO REMOVE: delete everything between the two
+// METEOGRAM EMBED markers — this block AND the ${meteogramSection(loc, index)}
+// line inside renderCard (also marked with a METEOGRAM EMBED comment).
+let meteogramOpen = new Set(); // locKeys of cards with meteogram expanded
+
+function toggleMeteogram(index) {
+  const key = locKey(locations[index]);
+  if (meteogramOpen.has(key)) meteogramOpen.delete(key);
+  else meteogramOpen.add(key);
+  render();
+}
+
+function meteogramSection(loc, index) {
+  const isOpen = meteogramOpen.has(locKey(loc));
+  const btn = `<button onclick="toggleMeteogram(${index})" style="display:block;width:100%;text-align:left;padding:8px 12px;font-size:11px;font-family:var(--mono);font-weight:700;letter-spacing:0.04em;background:transparent;border:none;color:var(--accent);cursor:pointer">${isOpen ? "▾ METEOGRAM — Windy (tap to close)" : "▸ METEOGRAM — tap to load Windy forecast"}</button>`;
+  // Windy embed with the point-forecast meteogram surfaced. detailLat/detailLon
+  // enable the forecast panel; type=map keeps the small locator map above it.
+  const frame = isOpen
+    ? `<iframe src="https://embed.windy.com/embed2.html?lat=${loc.lat}&lon=${loc.lon}&detailLat=${loc.lat}&detailLon=${loc.lon}&zoom=9&level=surface&overlay=radar&menu=&message=&marker=true&calendar=now&pressure=&type=forecast&location=coordinates&detail=true&metricWind=mph&metricTemp=%C2%B0F&radarRange=-1" width="100%" height="320" frameborder="0" loading="lazy" style="display:block;border:0"></iframe>`
+    : "";
+  return `<div style="border-top:1px solid rgba(255,255,255,0.05)">${btn}${frame}</div>`;
+}
+// ════════════════════ METEOGRAM EMBED — END ════════════════════
 
 // --- Render ---
 function renderCard(loc, index) {
@@ -1166,7 +1193,7 @@ function renderCard(loc, index) {
 
       body += `<div class="${cls}" onclick="selectDay(${pi}, '${rowId}')">
         <div class="daily-grid">
-          <div class="daily-name"><span style="display:inline-block;width:12px;font-size:9px;color:var(--dim)">${isOpen ? "▾" : "▸"}</span>${esc(p.name)}${isSelected ? ' <span style="font-size:9px;color:var(--accent);font-weight:400">● hourly</span>' : ""}</div>
+          <div class="daily-name"><span style="display:inline-block;width:14px;font-size:11px;font-weight:700;color:var(--accent)">${isOpen ? "▾" : "▸"}</span>${esc(p.name)}${isSelected ? ' <span style="font-size:9px;color:var(--accent);font-weight:400">● hourly</span>' : ""}</div>
           ${weatherIcon(p.shortForecast, 20)}
           ${tempBarHtml(p.temperature, min, max, night, false)}
           ${windHtml(p.windDirection, p.windSpeed)}
@@ -1208,7 +1235,7 @@ function renderCard(loc, index) {
       </div>
       ${tabs}
     </div>
-    <div class="card-body">${sparkline ? `<div class="card-sparkline">${sparkline}</div>` : ""}${radarSection(loc, index)}${body}</div> <!-- RADAR EMBED — the radarSection() call here is the line to delete when removing the feature -->
+    <div class="card-body">${sparkline ? `<div class="card-sparkline">${sparkline}</div>` : ""}${radarSection(loc, index)}${meteogramSection(loc, index)}${body}</div> <!-- RADAR EMBED / METEOGRAM EMBED — radarSection() and meteogramSection() calls here are the lines to delete when removing those features -->
     ${footer}
   </div>`;
 }
