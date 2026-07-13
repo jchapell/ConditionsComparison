@@ -1107,7 +1107,7 @@ function toggleRadar(index) {
 
 function radarSection(loc, index) {
   const isOpen = radarOpen.has(locKey(loc));
-  const btn = `<button onclick="toggleRadar(${index})" style="display:block;width:100%;text-align:left;padding:7px 12px;font-size:10px;font-family:var(--mono);letter-spacing:0.04em;background:transparent;border:none;color:${isOpen ? "var(--accent)" : "var(--dim)"};cursor:pointer">${isOpen ? "▾ RADAR — live (tap to close)" : "▸ RADAR — tap to load live view"}</button>`;
+  const btn = `<button onclick="toggleRadar(${index})" style="display:block;width:100%;text-align:left;padding:7px 12px;font-size:11px;font-family:var(--mono);letter-spacing:0.04em;background:transparent;border:none;color:${isOpen ? "var(--accent)" : "var(--dim)"};cursor:pointer">${isOpen ? "▾ RADAR — live (tap to close)" : "▸ RADAR — tap to load live view"}</button>`;
   const frame = isOpen
     ? `<iframe src="https://embed.windy.com/embed2.html?lat=${loc.lat}&lon=${loc.lon}&detailLat=${loc.lat}&detailLon=${loc.lon}&zoom=11&overlay=radar&level=surface&marker=true&menu=&message=&calendar=now&type=map&metricWind=mph&metricTemp=%C2%B0F" width="100%" height="220" frameborder="0" loading="lazy" style="display:block;border:0"></iframe>`
     : "";
