@@ -1115,33 +1115,6 @@ function radarSection(loc, index) {
 }
 // ════════════════════ RADAR EMBED — END ════════════════════
 
-// ════════════════════ METEOGRAM EMBED — BEGIN ════════════════════
-// In-card Windy meteogram (point forecast), loaded only when tapped.
-// This is a TEST — Windy's embedded meteogram may show a fixed ~5-day window
-// with limited controls. TO REMOVE: delete everything between the two
-// METEOGRAM EMBED markers — this block AND the ${meteogramSection(loc, index)}
-// line inside renderCard (also marked with a METEOGRAM EMBED comment).
-let meteogramOpen = new Set(); // locKeys of cards with meteogram expanded
-
-function toggleMeteogram(index) {
-  const key = locKey(locations[index]);
-  if (meteogramOpen.has(key)) meteogramOpen.delete(key);
-  else meteogramOpen.add(key);
-  render();
-}
-
-function meteogramSection(loc, index) {
-  const isOpen = meteogramOpen.has(locKey(loc));
-  const btn = `<button onclick="toggleMeteogram(${index})" style="display:block;width:100%;text-align:left;padding:8px 12px;font-size:11px;font-family:var(--mono);font-weight:700;letter-spacing:0.04em;background:transparent;border:none;color:var(--accent);cursor:pointer">${isOpen ? "▾ METEOGRAM — Windy (tap to close)" : "▸ METEOGRAM — tap to load Windy forecast"}</button>`;
-  // Windy embed with the point-forecast meteogram surfaced. detailLat/detailLon
-  // enable the forecast panel; type=map keeps the small locator map above it.
-  const frame = isOpen
-    ? `<iframe src="https://embed.windy.com/embed2.html?lat=${loc.lat}&lon=${loc.lon}&detailLat=${loc.lat}&detailLon=${loc.lon}&zoom=9&level=surface&overlay=radar&menu=&message=&marker=true&calendar=now&pressure=&type=forecast&location=coordinates&detail=true&metricWind=mph&metricTemp=%C2%B0F&radarRange=-1" width="100%" height="320" frameborder="0" loading="lazy" style="display:block;border:0"></iframe>`
-    : "";
-  return `<div style="border-top:1px solid rgba(255,255,255,0.05)">${btn}${frame}</div>`;
-}
-// ════════════════════ METEOGRAM EMBED — END ════════════════════
-
 // --- Render ---
 function renderCard(loc, index) {
   const key = locKey(loc);
@@ -1212,8 +1185,8 @@ function renderCard(loc, index) {
     footer = `<div class="card-footer">Updated: ${new Date(data.updated).toLocaleString()}</div>`;
   }
 
-  // Radar + forecast (Windy) — the /{lat}/{lon}? form opens the point forecast panel alongside radar.
-  const windyUrl = `https://www.windy.com/${loc.lat}/${loc.lon}?radar,${loc.lat},${loc.lon},8,p:temp`;
+  // Windy — the /{lat}/{lon}/meteogram form opens the forecast + meteogram view, with radar layer.
+  const windyUrl = `https://www.windy.com/${loc.lat}/${loc.lon}/meteogram?radar,${loc.lat},${loc.lon},8,p:temp`;
   const noaaUrl  = `https://forecast.weather.gov/MapClick.php?lat=${loc.lat}&lon=${loc.lon}`;
   // meteoblue 7-day — coordinate path; negative (western) longitudes keep the E suffix, which meteoblue resolves.
   const meteoblueUrl = `https://www.meteoblue.com/en/weather/week/${loc.lat}N${loc.lon}E`;
@@ -1227,7 +1200,7 @@ function renderCard(loc, index) {
           <div class="card-coords">${loc.lat.toFixed(4)}, ${loc.lon.toFixed(4)}${data && data.elevation != null ? " · " + data.elevation + " ft" : ""}</div>
           <div style="margin-top:3px">
             <a class="noaa-link" href="${noaaUrl}" target="_blank" rel="noopener">NOAA forecast ↗</a>
-            <a class="noaa-link" href="${windyUrl}" target="_blank" rel="noopener" style="margin-left:10px">Radar + forecast (Windy) ↗</a>
+            <a class="noaa-link" href="${windyUrl}" target="_blank" rel="noopener" style="margin-left:10px">Windy Radar/Meteo ↗</a>
             <a class="noaa-link" href="${meteoblueUrl}" target="_blank" rel="noopener" style="margin-left:10px">Meteoblue 7-day ↗</a>
           </div>
         </div>
@@ -1235,7 +1208,7 @@ function renderCard(loc, index) {
       </div>
       ${tabs}
     </div>
-    <div class="card-body">${sparkline ? `<div class="card-sparkline">${sparkline}</div>` : ""}${radarSection(loc, index)}${meteogramSection(loc, index)}${body}</div> <!-- RADAR EMBED / METEOGRAM EMBED — radarSection() and meteogramSection() calls here are the lines to delete when removing those features -->
+    <div class="card-body">${sparkline ? `<div class="card-sparkline">${sparkline}</div>` : ""}${radarSection(loc, index)}${body}</div> <!-- RADAR EMBED — the radarSection() call here is the line to delete when removing the feature -->
     ${footer}
   </div>`;
 }
