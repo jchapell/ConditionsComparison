@@ -180,7 +180,7 @@
 <div id="content"></div>
 
 <script>
-const PRESETS_KEY = "noaa-dashboard-presets-v2"; // v2: race presets — new key so old saved data doesn't mask them
+const PRESETS_KEY = "noaa-hilo-presets-v1"; // HiLo race page — own key so it doesn't share saved state with the root site (localStorage is per-origin, not per-path)
 const DEFAULT_PRESETS = [
   { name: "HiLo Start/Finish", lat: 38.740283, lon: -106.161251 },
   { name: "Antero Saddle", lat: 38.66217, lon: -106.25814 },
@@ -222,7 +222,7 @@ function removePreset(index) {
   savePresets(presets);
 }
 
-const STORAGE_KEY = "noaa-dashboard-locations-v2"; // v2: everyone gets the 5 race defaults on first load of this version
+const STORAGE_KEY = "noaa-hilo-locations-v1"; // HiLo race page — own key, independent from the root site's saved locations
 const LOC_COLORS = ["#58a6ff", "#d4946a", "#8bc78b", "#b39ddb", "#e06c75", "#e5c07b", "#56b6c2", "#c678dd", "#98c379", "#d19a66"];
 
 let hiddenChartLocs = new Set(); // keys of locations toggled off in comparison chart
@@ -1205,8 +1205,7 @@ function renderCard(loc, index) {
       </div>
       ${tabs}
     </div>
-    <div class="card-body">${sparkline ? `<div class="card-sparkline">${sparkline}</div>` : ""}${body}</div>
-    ${radarSection(loc, index)} <!-- RADAR EMBED — delete this line too when removing the feature -->
+    <div class="card-body">${sparkline ? `<div class="card-sparkline">${sparkline}</div>` : ""}${radarSection(loc, index)}${body}</div> <!-- RADAR EMBED — the radarSection() call here is the line to delete when removing the feature -->
     ${footer}
   </div>`;
 }
