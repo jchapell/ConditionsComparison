@@ -83,7 +83,7 @@
     .search-bar { padding: 10px 16px; }
     .grid { padding: 12px; gap: 12px; }
     .card { flex: 0 0 calc(100vw - 40px); }   /* near-full width, peek next card */
-    .card-body { max-height: none; }            /* uncap on mobile — page scrolls instead */
+    .card-body { max-height: 70vh; }            /* card scrolls internally so header + sparkline stay pinned (sticky can't escape the horizontal strip) */
     .comp-chart { padding: 8px 16px 6px; }
   }
 
@@ -240,7 +240,7 @@ let globalSparkMode = "temp";
 let expandedRows = new Set();
 let allExpanded = false;
 let selectedDayIndex = null;
-let compChartRange = 7; // comparison chart time window in days: 3 or 7
+let compChartRange = 3; // comparison chart time window in days: 3 or 7 (3 = default, shows extreme labels)
 let _compState = null;  // geometry + data snapshot of the last-rendered comparison chart (for the crosshair)
 let _sparkStates = {};  // per-card sparkline data snapshots, keyed by locKey (for the sparkline crosshair)
 
@@ -1091,6 +1091,30 @@ function moonPhase(dateStr) {
   return { emoji, label, pct };
 }
 
+// ════════════════════ RADAR EMBED — BEGIN ════════════════════
+// In-card live radar (Windy embed, zoom 11), loaded only when tapped.
+// TO REMOVE THIS FEATURE: delete everything between the two RADAR EMBED
+// markers — this block, AND the single ${radarSection(loc, index)} line
+// inside renderCard (also marked with a RADAR EMBED comment).
+let radarOpen = new Set(); // locKeys of cards with radar expanded
+
+function toggleRadar(index) {
+  const key = locKey(locations[index]);
+  if (radarOpen.has(key)) radarOpen.delete(key);
+  else radarOpen.add(key);
+  render();
+}
+
+function radarSection(loc, index) {
+  const isOpen = radarOpen.has(locKey(loc));
+  const btn = `<button onclick="toggleRadar(${index})" style="display:block;width:100%;text-align:left;padding:7px 12px;font-size:10px;font-family:var(--mono);letter-spacing:0.04em;background:transparent;border:none;color:${isOpen ? "var(--accent)" : "var(--dim)"};cursor:pointer">${isOpen ? "▾ RADAR — live (tap to close)" : "▸ RADAR — tap to load live view"}</button>`;
+  const frame = isOpen
+    ? `<iframe src="https://embed.windy.com/embed2.html?lat=${loc.lat}&lon=${loc.lon}&detailLat=${loc.lat}&detailLon=${loc.lon}&zoom=11&overlay=radar&level=surface&marker=true&menu=&message=&calendar=now&type=map&metricWind=mph&metricTemp=%C2%B0F" width="100%" height="220" frameborder="0" loading="lazy" style="display:block;border:0"></iframe>`
+    : "";
+  return `<div style="border-top:1px solid rgba(255,255,255,0.05)">${btn}${frame}</div>`;
+}
+// ════════════════════ RADAR EMBED — END ════════════════════
+
 // --- Render ---
 function renderCard(loc, index) {
   const key = locKey(loc);
@@ -1182,6 +1206,7 @@ function renderCard(loc, index) {
       ${tabs}
     </div>
     <div class="card-body">${sparkline ? `<div class="card-sparkline">${sparkline}</div>` : ""}${body}</div>
+    ${radarSection(loc, index)} <!-- RADAR EMBED — delete this line too when removing the feature -->
     ${footer}
   </div>`;
 }
