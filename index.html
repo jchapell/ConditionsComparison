@@ -180,14 +180,22 @@
 <div id="content"></div>
 
 <script>
-const PRESETS_KEY = "noaa-dashboard-presets";
+const PRESETS_KEY = "noaa-dashboard-presets-v2"; // v2: race presets — new key so old saved data doesn't mask them
 const DEFAULT_PRESETS = [
-  { name: "HiLo Start", lat: 38.740283, lon: -106.161251 },
-  { name: "South Boulder Peak, Boulder CO", lat: 39.9493, lon: -105.2390 },
-  { name: "Rocky Mtn NP – Bear Lake", lat: 40.3128, lon: -105.6458 },
-  { name: "Zion NP – Springdale", lat: 37.1890, lon: -112.9983 },
-  { name: "Grand Canyon – South Rim", lat: 36.0544, lon: -112.1401 },
-  { name: "Joshua Tree NP", lat: 33.8734, lon: -115.9010 },
+  { name: "HiLo Start/Finish", lat: 38.740283, lon: -106.161251 },
+  { name: "Antero Saddle", lat: 38.66217, lon: -106.25814 },
+  { name: "Hancock Lake", lat: 38.639211, lon: -106.361804 },
+  { name: "Monarch Pass", lat: 38.497200, lon: -106.326567 },
+  { name: "Buena Vista", lat: 38.841688, lon: -106.132670 },
+];
+
+// Locations shown on first visit (before anything is saved to localStorage).
+const DEFAULT_LOCATIONS = [
+  { name: "HiLo Start/Finish", lat: 38.740283, lon: -106.161251 },
+  { name: "Antero Saddle", lat: 38.66217, lon: -106.25814 },
+  { name: "Hancock Lake", lat: 38.639211, lon: -106.361804 },
+  { name: "Monarch Pass", lat: 38.497200, lon: -106.326567 },
+  { name: "Buena Vista", lat: 38.841688, lon: -106.132670 },
 ];
 
 function loadPresets() {
@@ -214,7 +222,7 @@ function removePreset(index) {
   savePresets(presets);
 }
 
-const STORAGE_KEY = "noaa-dashboard-locations";
+const STORAGE_KEY = "noaa-dashboard-locations-v2"; // v2: everyone gets the 5 race defaults on first load of this version
 const LOC_COLORS = ["#58a6ff", "#d4946a", "#8bc78b", "#b39ddb", "#e06c75", "#e5c07b", "#56b6c2", "#c678dd", "#98c379", "#d19a66"];
 
 let hiddenChartLocs = new Set(); // keys of locations toggled off in comparison chart
@@ -232,13 +240,18 @@ let globalSparkMode = "temp";
 let expandedRows = new Set();
 let allExpanded = false;
 let selectedDayIndex = null;
+let compChartRange = 7; // comparison chart time window in days: 3 or 7
+let _compState = null;  // geometry + data snapshot of the last-rendered comparison chart (for the crosshair)
 
 // --- Storage ---
 function loadLocations() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch { return []; }
+    // raw === null means never saved → first visit, show defaults.
+    // An explicitly emptied list ("[]") is respected and stays empty.
+    if (raw === null) return [...DEFAULT_LOCATIONS];
+    return JSON.parse(raw);
+  } catch { return [...DEFAULT_LOCATIONS]; }
 }
 function saveLocations() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(locations)); } catch {}
@@ -293,6 +306,7 @@ async function geocode(query) {
 function pickResult(loc) {
   if (locations.some(l => Math.abs(l.lat - loc.lat) < 0.001 && Math.abs(l.lon - loc.lon) < 0.001)) return;
   locations.push(loc);
+  expandedRows.add(`${locKey(loc)}__0`); // auto-expand Today so the narrative is visible
   saveLocations();
   searchInput.value = "";
   searchDropdown.style.display = "none";
@@ -474,7 +488,9 @@ async function fetchNOAA(lat, lon) {
     gridId: props.gridId || "",
     city: props.relativeLocation?.properties?.city || "",
     state: props.relativeLocation?.properties?.state || "",
-    daily: daily.properties.periods.slice(0, 10),
+    // NOAA returns day + night as separate periods, so a full 7-day forecast
+    // is ~14 periods. Keep all of them (was sliced to 10 = only ~5 days).
+    daily: daily.properties.periods.slice(0, 14),
     hourly: hourlyPeriods,
     updated: daily.properties.updateTime,
   };
@@ -494,22 +510,52 @@ async function fetchForLocation(loc) {
     return;
   }
   loadingSet.delete(key);
-  // Load ECMWF extended forecast in background
+  // NOAA loaded — render immediately, then load ECMWF extended forecast in background
+  render();
+  loadECMWF(loc);
+}
+
+// Fetch the ECMWF extended forecast for a single location (separate so it can be retried).
+async function loadECMWF(loc) {
+  const key = locKey(loc);
+  if (!weatherData[key]) return;
+  weatherData[key].ecmwfLoading = true;
+  weatherData[key].ecmwfFailed = false;
   render();
   try {
-    const ecmwf = await fetchOpenMeteo(loc.lat, loc.lon).catch(() => null);
-    if (weatherData[key]) {
-      weatherData[key].ecmwfDays = ecmwf?.days ?? null;
-      weatherData[key].sunTimes  = ecmwf?.sunTimes ?? {};
+    // One automatic retry — free endpoints hiccup often. Second attempt after a short pause.
+    let ecmwf = await fetchOpenMeteo(loc.lat, loc.lon).catch(() => null);
+    if (!ecmwf) {
+      await new Promise(r => setTimeout(r, 1200));
+      ecmwf = await fetchOpenMeteo(loc.lat, loc.lon).catch(() => null);
+    }
+    if (!weatherData[key]) return; // location removed while loading
+    weatherData[key].ecmwfLoading = false;
+    if (ecmwf) {
+      weatherData[key].ecmwfDays = ecmwf.days ?? null;
+      weatherData[key].sunTimes  = ecmwf.sunTimes ?? {};
+      weatherData[key].ecmwfFailed = false;
       // Use Open-Meteo elevation as fallback if NOAA didn't provide one
-      if (weatherData[key].elevation == null && ecmwf?.elevFt != null) {
+      if (weatherData[key].elevation == null && ecmwf.elevFt != null) {
         weatherData[key].elevation = ecmwf.elevFt;
       }
+    } else {
+      weatherData[key].ecmwfFailed = true;
+    }
+    render();
+  } catch {
+    if (weatherData[key]) {
+      weatherData[key].ecmwfLoading = false;
+      weatherData[key].ecmwfFailed = true;
       render();
     }
-  } catch {
-    if (weatherData[key]) render();
   }
+}
+
+// Retry just the extended forecast for one card (used by the retry button).
+function retryECMWF(index) {
+  const loc = locations[index];
+  if (loc) loadECMWF(loc);
 }
 
 function refreshAll() {
@@ -531,6 +577,14 @@ function removeLocation(index) {
 
 // --- Helpers ---
 function esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+
+// Compact hour label for tight sparkline axes: "6a", "12p", "2p" (no space → never clips).
+function fmtHourCompact(date) {
+  let h = date.getHours();
+  const ap = h < 12 ? "a" : "p";
+  h = h % 12; if (h === 0) h = 12;
+  return `${h}${ap}`;
+}
 
 // Format a Date as Mountain Time (MT), e.g. "11:52 AM"
 function fmtMT(date) {
@@ -711,7 +765,7 @@ function sparklineHtml(hourly, dailyPeriods) {
       const tipProb = `${Math.round(prob)}%`;
       const displayAmt = amt >= 0.01 ? amt.toFixed(2) : amt > 0 ? "T" : "";
       bars        += `<div class="precip-bar" style="height:${heightPct}%;background:${color};opacity:${opacity.toFixed(2)}" data-tip="${hourStr}: ${tipAmt} · ${tipProb} chance"></div>`;
-      timeLabels  += `<div style="flex:1;text-align:center;font-size:9px;font-family:var(--mono);color:var(--dim);overflow:hidden;white-space:nowrap">${showLabel ? hourStr : ""}</div>`;
+      timeLabels  += `<div style="flex:1;text-align:center;font-size:9px;font-family:var(--mono);color:var(--dim);overflow:hidden;white-space:nowrap">${showLabel ? fmtHourCompact(t) : ""}</div>`;
       valueLabels += `<div style="flex:1;text-align:center;font-size:8px;font-family:var(--mono);color:${color};opacity:0.9;overflow:hidden;white-space:nowrap">${showLabel && displayAmt ? displayAmt : ""}</div>`;
     });
 
@@ -768,9 +822,8 @@ function sparklineHtml(hourly, dailyPeriods) {
     let timeLabels = "", valueLabels = "";
     hrs.forEach((h, i) => {
       const t = new Date(h.startTime);
-      const hourStr = t.toLocaleTimeString([], { hour: "numeric", hour12: true });
       const showLabel = i % labelEvery === 0;
-      timeLabels  += `<div style="flex:1;text-align:center;font-size:9px;font-family:var(--mono);color:var(--dim);overflow:hidden;white-space:nowrap">${showLabel ? hourStr : ""}</div>`;
+      timeLabels  += `<div style="flex:1;text-align:center;font-size:9px;font-family:var(--mono);color:var(--dim);overflow:hidden;white-space:nowrap">${showLabel ? fmtHourCompact(t) : ""}</div>`;
       valueLabels += `<div style="flex:1;text-align:center;font-size:8px;font-family:var(--mono);color:${color};opacity:0.8;overflow:hidden;white-space:nowrap">${showLabel ? sustained[i] : ""}</div>`;
     });
 
@@ -840,9 +893,9 @@ function sparklineHtml(hourly, dailyPeriods) {
 
     let timeLabels = "", valueLabels = "";
     hrs.forEach((h, i) => {
-      const hourStr = new Date(h.startTime).toLocaleTimeString([], { hour: "numeric", hour12: true });
+      const t = new Date(h.startTime);
       const showLabel = i % labelEvery === 0;
-      timeLabels  += `<div style="flex:1;text-align:center;font-size:9px;font-family:var(--mono);color:var(--dim);overflow:hidden;white-space:nowrap">${showLabel ? hourStr : ""}</div>`;
+      timeLabels  += `<div style="flex:1;text-align:center;font-size:9px;font-family:var(--mono);color:var(--dim);overflow:hidden;white-space:nowrap">${showLabel ? fmtHourCompact(t) : ""}</div>`;
       valueLabels += `<div style="flex:1;text-align:center;font-size:8px;font-family:var(--mono);color:${tempColor(temps[i])};opacity:0.8;overflow:hidden;white-space:nowrap">${showLabel ? temps[i] + "°" : ""}</div>`;
     });
 
@@ -885,12 +938,11 @@ function sparklineHtml(hourly, dailyPeriods) {
     const intensity = pct / 100;
     const bg = intensity > 0.5 ? metric.color : intensity > 0.2 ? metric.color + "80" : metric.color + "26";
     const t = new Date(h.startTime);
-    const hourStr = t.toLocaleTimeString([], { hour: "numeric", hour12: true });
     const showLabel = i % labelEvery === 0;
     const displayVal = mode === "temp" ? `${val}°` : `${Math.round(val)}`;
 
-    bars += `<div class="precip-bar" style="height:${Math.max(2, pct)}%;background:${bg}" data-tip="${hourStr}: ${val}${metric.unit}"></div>`;
-    timeLabels += `<div style="flex:1;text-align:center;font-size:9px;font-family:var(--mono);color:var(--dim);overflow:hidden;white-space:nowrap">${showLabel ? hourStr : ""}</div>`;
+    bars += `<div class="precip-bar" style="height:${Math.max(2, pct)}%;background:${bg}" data-tip="${t.toLocaleTimeString([], { hour: "numeric", hour12: true })}: ${val}${metric.unit}"></div>`;
+    timeLabels += `<div style="flex:1;text-align:center;font-size:9px;font-family:var(--mono);color:var(--dim);overflow:hidden;white-space:nowrap">${showLabel ? fmtHourCompact(t) : ""}</div>`;
     valueLabels += `<div style="flex:1;text-align:center;font-size:8px;font-family:var(--mono);color:${metric.color};opacity:0.8;overflow:hidden;white-space:nowrap">${showLabel ? displayVal : ""}</div>`;
   });
 
@@ -990,6 +1042,22 @@ function renderECMWFRows(ecmwfDays, noaaDaily) {
   return `<div style="padding:5px 12px 3px;font-size:9px;font-family:var(--mono);color:rgba(255,255,255,0.38);letter-spacing:0.04em;margin-top:4px">Days 8–16 · ECMWF IFS · less precise, directionally useful</div>${rows}`;
 }
 
+// Small status block for the extended forecast: loading spinner, or a failure
+// message with a retry button. Returns "" when data loaded fine or none applies.
+function renderECMWFStatus(data, index) {
+  if (!data) return "";
+  if (data.ecmwfLoading) {
+    return `<div style="padding:8px 12px;font-size:10px;font-family:var(--mono);color:var(--dim);opacity:0.7">Loading extended forecast…</div>`;
+  }
+  if (data.ecmwfFailed) {
+    return `<div style="padding:8px 12px;font-size:10px;font-family:var(--mono);color:var(--dim);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span style="color:#c78a50">Extended forecast (days 8–16) unavailable.</span>
+      <button class="btn-retry" style="margin-top:0" onclick="retryECMWF(${index})">↻ Retry</button>
+    </div>`;
+  }
+  return "";
+}
+
 // Moon phase — pure math, no API needed
 // Returns { emoji, label, pct } where pct is 0-100 illumination
 function moonPhase(dateStr) {
@@ -1064,7 +1132,7 @@ function renderCard(loc, index) {
 
       body += `<div class="${cls}" onclick="selectDay(${pi}, '${rowId}')">
         <div class="daily-grid">
-          <div class="daily-name">${esc(p.name)}${isSelected ? ' <span style="font-size:9px;color:var(--accent);font-weight:400">● hourly</span>' : ""}</div>
+          <div class="daily-name"><span style="display:inline-block;width:12px;font-size:9px;color:var(--dim)">${isOpen ? "▾" : "▸"}</span>${esc(p.name)}${isSelected ? ' <span style="font-size:9px;color:var(--accent);font-weight:400">● hourly</span>' : ""}</div>
           ${weatherIcon(p.shortForecast, 20)}
           ${tempBarHtml(p.temperature, min, max, night, false)}
           ${windHtml(p.windDirection, p.windSpeed)}
@@ -1073,8 +1141,9 @@ function renderCard(loc, index) {
         <div class="daily-detail${isOpen ? " open" : ""}">${esc(p.detailedForecast || p.shortForecast)}</div>
       </div>`;
     });
-    // ECMWF extended days (8-16) after the NOAA daily rows
+    // ECMWF extended days (8-16) after the NOAA daily rows, then loading/retry status
     body += renderECMWFRows(data.ecmwfDays, data.daily);
+    body += renderECMWFStatus(data, index);
   }
 
   let footer = "";
@@ -1082,13 +1151,21 @@ function renderCard(loc, index) {
     footer = `<div class="card-footer">Updated: ${new Date(data.updated).toLocaleString()}</div>`;
   }
 
+  // Radar (Windy) — opens in-browser, no app required. zoom level 8.
+  const windyUrl = `https://www.windy.com/?radar,${loc.lat},${loc.lon},8`;
+  const noaaUrl  = `https://forecast.weather.gov/MapClick.php?lat=${loc.lat}&lon=${loc.lon}`;
+
   return `<div class="card">
     <div class="card-header">
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
         <div>
           <div class="card-title"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${LOC_COLORS[index % LOC_COLORS.length]};margin-right:6px;vertical-align:middle"></span>${esc(loc.name)}</div>
           ${headerMeta}
-          <div class="card-coords">${loc.lat.toFixed(4)}, ${loc.lon.toFixed(4)}${data && data.elevation != null ? " · " + data.elevation + " ft" : ""} · <a class="noaa-link" href="https://forecast.weather.gov/MapClick.php?lat=${loc.lat}&lon=${loc.lon}" target="_blank" rel="noopener">NOAA page ↗</a></div>
+          <div class="card-coords">${loc.lat.toFixed(4)}, ${loc.lon.toFixed(4)}${data && data.elevation != null ? " · " + data.elevation + " ft" : ""}</div>
+          <div style="margin-top:3px">
+            <a class="noaa-link" href="${noaaUrl}" target="_blank" rel="noopener">NOAA forecast ↗</a>
+            <a class="noaa-link" href="${windyUrl}" target="_blank" rel="noopener" style="margin-left:10px">Radar (Windy) ↗</a>
+          </div>
         </div>
         <button class="card-close" onclick="removeLocation(${index})" title="Remove">×</button>
       </div>
@@ -1110,14 +1187,22 @@ function renderCompChart() {
   const mode = globalSparkMode;
   const metric = SPARK_METRICS.find(m => m.id === mode) || SPARK_METRICS[0];
 
-  // Gather data series per location — always use FULL hourly range, never linked to day selection
+  // Compute the cutoff for the selected time window (3 or 7 days from the earliest hour).
+  // Gather data series per location — always use FULL hourly range, then trim to window.
   const allSeries = locsWithData.map((loc) => {
     const mainIndex = locations.indexOf(loc);
     const data = weatherData[locKey(loc)];
     const vals  = data.hourly.map(h => ({ time: new Date(h.startTime), val: metric.extract(h),
                                           val2: metric.extract2 ? metric.extract2(h) : null,
-                                          h }));    return { name: loc.name, color: LOC_COLORS[mainIndex % LOC_COLORS.length], vals, key: locKey(loc) };
+                                          h }));
+    return { name: loc.name, color: LOC_COLORS[mainIndex % LOC_COLORS.length], vals, key: locKey(loc) };
   });
+
+  // Determine the global earliest time across all series, then cut off at +N days.
+  let earliest = Infinity;
+  allSeries.forEach(s => s.vals.forEach(v => { if (v.time.getTime() < earliest) earliest = v.time.getTime(); }));
+  const cutoff = earliest + compChartRange * 24 * 3600000;
+  allSeries.forEach(s => { s.vals = s.vals.filter(v => v.time.getTime() <= cutoff); });
 
   // Only render lines/dots for visible locations
   const series = allSeries.filter(s => !hiddenChartLocs.has(s.key));
@@ -1167,7 +1252,7 @@ function renderCompChart() {
     yLabels += `<line x1="${padL}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}" stroke="rgba(255,255,255,0.04)" />`;
   }
 
-  // Build two-row X axis: hour ticks every 6h + day banners + midnight separators
+  // Build two-row X axis: hour ticks + day banners + midnight separators
   let xLabels = "";
   const dayGroups = new Map();
   allTimes.forEach(t => {
@@ -1187,7 +1272,8 @@ function renderCompChart() {
     xLabels += `<text x="${midX}" y="${dayRowY}" text-anchor="middle" fill="#7d8590" font-size="9" font-family="var(--mono)">${group.label}</text>`;
   });
   const totalHours = (maxTime - minTime) / 3600000;
-  const showHourLabel = totalHours <= 72 ? h => h % 6 === 0 : h => h % 12 === 0;
+  // Denser labels for the 3-day view; sparser for 7-day.
+  const showHourLabel = totalHours <= 84 ? h => h % 6 === 0 : h => h % 12 === 0;
   allTimes.forEach(t => {
     const d = new Date(t);
     if (showHourLabel(d.getHours())) {
@@ -1281,6 +1367,42 @@ function renderCompChart() {
     }
   });
 
+  // Always-visible daily extreme labels — 3-day mode only (7-day would be too dense).
+  // Temp gets daily high above the peak + daily low below the trough; other metrics get the daily peak.
+  if (compChartRange === 3) {
+    series.forEach(s => {
+      if (s.vals.length === 0) return;
+      const byDay = new Map();
+      s.vals.forEach(v => {
+        const k = v.time.toLocaleDateString();
+        const cur = byDay.get(k);
+        if (!cur) byDay.set(k, { max: v, min: v });
+        else {
+          if (v.val > cur.max.val) cur.max = v;
+          if (v.val < cur.min.val) cur.min = v;
+        }
+      });
+      byDay.forEach(g => {
+        const vMax = g.max;
+        let lbl = "";
+        if (mode === "temp")            lbl = `${vMax.val}°`;
+        else if (mode === "precip-amt") lbl = vMax.val >= 0.01 ? `${vMax.val.toFixed(2)}"` : "";
+        else if (mode === "wind")       lbl = vMax.val > 0 ? `${vMax.val}` : "";
+        else                            lbl = vMax.val > 0 ? `${Math.round(vMax.val)}` : "";
+        if (lbl) {
+          paths += `<text x="${x(vMax.time.getTime()).toFixed(1)}" y="${Math.max(padT + 7, y(vMax.val) - 5).toFixed(1)}" text-anchor="middle" fill="${s.color}" font-size="8.5" font-family="var(--mono)" font-weight="700" style="paint-order:stroke" stroke="rgba(13,17,23,0.85)" stroke-width="2.5">${lbl}</text>`;
+        }
+        if (mode === "temp") {
+          const vMin = g.min;
+          paths += `<text x="${x(vMin.time.getTime()).toFixed(1)}" y="${Math.min(padT + plotH - 2, y(vMin.val) + 11).toFixed(1)}" text-anchor="middle" fill="${s.color}" font-size="8.5" font-family="var(--mono)" opacity="0.75" style="paint-order:stroke" stroke="rgba(13,17,23,0.85)" stroke-width="2.5">${vMin.val}°</text>`;
+        }
+      });
+    });
+  }
+
+  // Snapshot geometry + data for the tap/drag crosshair
+  _compState = { W, padL, plotW, padT, plotH, minTime, timeRange, allTimes, mode, series };
+
   // Chart legend note for wind band
   const bandNote = metric.type === "band"
     ? `<span style="font-size:9px;font-family:var(--mono);color:var(--dim);margin-left:8px">— sustained &nbsp; ╌ gusts</span>`
@@ -1298,19 +1420,96 @@ function renderCompChart() {
     legend += `<span class="comp-legend-item" onclick="toggleChartLoc('${s.key}')" title="${isHidden ? 'Click to show' : 'Click to hide'}" style="cursor:pointer;opacity:${isHidden ? 0.3 : 1};text-decoration:${isHidden ? 'line-through' : 'none'}"><span class="comp-legend-dot" style="background:${s.color}"></span>${esc(shortName)}</span>`;
   });
 
+  // Prominent 3-day / 7-day range toggle
+  const rangeToggle = `<div style="display:inline-flex;border:1px solid rgba(88,166,255,0.35);border-radius:6px;overflow:hidden;margin-left:auto">
+    <button onclick="setCompRange(3)" style="padding:4px 12px;font-size:11px;font-family:var(--mono);font-weight:700;letter-spacing:0.04em;border:none;cursor:pointer;background:${compChartRange === 3 ? 'var(--accent)' : 'transparent'};color:${compChartRange === 3 ? '#0d1117' : 'var(--accent)'}">3 DAY</button>
+    <button onclick="setCompRange(7)" style="padding:4px 12px;font-size:11px;font-family:var(--mono);font-weight:700;letter-spacing:0.04em;border:none;cursor:pointer;background:${compChartRange === 7 ? 'var(--accent)' : 'transparent'};color:${compChartRange === 7 ? '#0d1117' : 'var(--accent)'}">7 DAY</button>
+  </div>`;
+
   el.innerHTML = `<div class="comp-chart">
     <div class="comp-chart-header">
       <span class="comp-chart-title">COMPARISON</span>
       ${SPARK_METRICS.map(m => `<button class="spark-pill${mode === m.id ? " active" : ""}" onclick="setSparkMode('${m.id}')">${m.label}</button>`).join("")}
       ${bandNote}
+      ${rangeToggle}
     </div>
-    <svg class="comp-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+    <div id="compReadout" style="font-size:10px;font-family:var(--mono);color:var(--dim);min-height:15px;margin-bottom:2px;overflow-x:auto;white-space:nowrap;-webkit-overflow-scrolling:touch">Tap or drag on the chart to read exact values</div>
+    <svg id="compSvg" class="comp-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="touch-action:pan-y;cursor:crosshair">
       ${yLabels}
       ${xLabels}
       ${paths}
+      <g id="compCross" style="display:none;pointer-events:none">
+        <line x1="0" x2="0" y1="${padT}" y2="${padT + plotH}" stroke="rgba(230,237,243,0.55)" stroke-width="1" stroke-dasharray="3,2"/>
+      </g>
     </svg>
     <div class="comp-legend">${legend}</div>
   </div>`;
+  attachCompCrosshair();
+}
+
+// --- Comparison chart crosshair (works on touch, where hover tooltips don't exist) ---
+function attachCompCrosshair() {
+  const svg = document.getElementById("compSvg");
+  if (!svg) return;
+  // Tap anywhere sets the crosshair; horizontal drag scrubs it. Vertical swipes
+  // still scroll the page thanks to touch-action:pan-y on the SVG.
+  svg.addEventListener("pointerdown", e => updateCompCrosshair(e.clientX));
+  svg.addEventListener("pointermove", e => {
+    if (e.pointerType === "mouse" || e.buttons > 0) updateCompCrosshair(e.clientX);
+  });
+}
+
+function updateCompCrosshair(clientX) {
+  if (!_compState) return;
+  const svg = document.getElementById("compSvg");
+  const cross = document.getElementById("compCross");
+  const readout = document.getElementById("compReadout");
+  if (!svg || !cross || !readout) return;
+  const st = _compState;
+  const rect = svg.getBoundingClientRect();
+  const xv = ((clientX - rect.left) / rect.width) * st.W;
+
+  // Snap to the nearest hour that exists in the data
+  let best = null, bestD = Infinity;
+  st.allTimes.forEach(t => {
+    const px = st.padL + ((t - st.minTime) / st.timeRange) * st.plotW;
+    const d = Math.abs(px - xv);
+    if (d < bestD) { bestD = d; best = t; }
+  });
+  if (best == null) return;
+
+  const lineX = st.padL + ((best - st.minTime) / st.timeRange) * st.plotW;
+  cross.style.display = "";
+  const line = cross.querySelector("line");
+  line.setAttribute("x1", lineX);
+  line.setAttribute("x2", lineX);
+
+  const d = new Date(best);
+  const when = d.toLocaleDateString([], { weekday: "short", month: "numeric", day: "numeric" }) + " " + fmtHourCompact(d);
+  let parts = "";
+  st.series.forEach(s => {
+    // Find this series' value nearest the snapped hour (must be within 1h)
+    let nearest = null, nd = Infinity;
+    s.vals.forEach(v => {
+      const dd = Math.abs(v.time.getTime() - best);
+      if (dd < nd) { nd = dd; nearest = v; }
+    });
+    if (!nearest || nd > 3600000) return;
+    parts += `<span style="margin-right:12px;white-space:nowrap"><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${s.color};margin-right:3px;vertical-align:baseline"></span>${esc(s.name.split(",")[0].trim())} <b style="color:var(--text)">${fmtCompVal(nearest, st.mode)}</b></span>`;
+  });
+  readout.innerHTML = `<span style="color:var(--accent);margin-right:12px">${when}</span>${parts}`;
+}
+
+function fmtCompVal(v, mode) {
+  if (mode === "temp")
+    return (v.val2 != null && v.val2 <= v.val - 2) ? `${v.val}° (feels ${v.val2}°)` : `${v.val}°`;
+  if (mode === "wind")
+    return (v.val2 && v.val2 > v.val) ? `${v.val}/${v.val2} mph` : `${v.val} mph`;
+  if (mode === "precip-amt") {
+    const amt = v.val >= 0.01 ? v.val.toFixed(2) + '"' : v.val > 0 ? "T" : '0"';
+    return `${amt} · ${Math.round(v.val2 ?? 0)}%`;
+  }
+  return `${Math.round(v.val)}%`;
 }
 
 function render() {
@@ -1350,6 +1549,7 @@ document.addEventListener("scroll", (e) => {
 
 function setView(key, v) { views[key] = v; render(); }
 function setSparkMode(mode) { globalSparkMode = mode; render(); }
+function setCompRange(days) { compChartRange = days; renderCompChart(); }
 function selectDay(dayIndex, rowId) {
   if (selectedDayIndex === dayIndex) {
     // Deselect: collapse all for this period and reset sparkline
@@ -1402,7 +1602,7 @@ function getMaxDayIndex() {
     const data = weatherData[locKey(loc)];
     if (data && data.daily) return data.daily.length - 1;
   }
-  return 9;
+  return 13;
 }
 
 function navigateDay(direction) {
@@ -1480,6 +1680,9 @@ document.addEventListener("keydown", (e) => {
 
 // --- Init ---
 locations = loadLocations();
+// Auto-expand each card's "Today" row so the forecast narrative is immediately
+// visible — this also teaches users that day rows are tappable.
+locations.forEach(loc => expandedRows.add(`${locKey(loc)}__0`));
 render();
 if (locations.length > 0) setTimeout(() => locations.forEach(fetchForLocation), 0);
 </script>
