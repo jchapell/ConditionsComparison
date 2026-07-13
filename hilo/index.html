@@ -1107,7 +1107,7 @@ function toggleRadar(index) {
 
 function radarSection(loc, index) {
   const isOpen = radarOpen.has(locKey(loc));
-  const btn = `<button onclick="toggleRadar(${index})" style="display:block;width:100%;text-align:left;padding:7px 12px;font-size:11px;font-family:var(--mono);letter-spacing:0.04em;background:transparent;border:none;color:${isOpen ? "var(--accent)" : "var(--accent)"};cursor:pointer">${isOpen ? "▾ RADAR — live (tap to close)" : "▸ RADAR — tap to load live view"}</button>`;
+  const btn = `<button onclick="toggleRadar(${index})" style="display:block;width:100%;text-align:left;padding:7px 12px;font-size:10px;font-family:var(--mono);letter-spacing:0.04em;background:transparent;border:none;color:${isOpen ? "var(--accent)" : "var(--dim)"};cursor:pointer">${isOpen ? "▾ RADAR — live (tap to close)" : "▸ RADAR — tap to load live view"}</button>`;
   const frame = isOpen
     ? `<iframe src="https://embed.windy.com/embed2.html?lat=${loc.lat}&lon=${loc.lon}&detailLat=${loc.lat}&detailLon=${loc.lon}&zoom=11&overlay=radar&level=surface&marker=true&menu=&message=&calendar=now&type=map&metricWind=mph&metricTemp=%C2%B0F" width="100%" height="220" frameborder="0" loading="lazy" style="display:block;border:0"></iframe>`
     : "";
@@ -1185,9 +1185,11 @@ function renderCard(loc, index) {
     footer = `<div class="card-footer">Updated: ${new Date(data.updated).toLocaleString()}</div>`;
   }
 
-  // Radar (Windy) — opens in-browser, no app required. zoom level 8.
-  const windyUrl = `https://www.windy.com/?radar,${loc.lat},${loc.lon},8`;
+  // Radar + forecast (Windy) — the /{lat}/{lon}? form opens the point forecast panel alongside radar.
+  const windyUrl = `https://www.windy.com/${loc.lat}/${loc.lon}?radar,${loc.lat},${loc.lon},8,p:temp`;
   const noaaUrl  = `https://forecast.weather.gov/MapClick.php?lat=${loc.lat}&lon=${loc.lon}`;
+  // meteoblue 7-day — coordinate path; negative (western) longitudes keep the E suffix, which meteoblue resolves.
+  const meteoblueUrl = `https://www.meteoblue.com/en/weather/week/${loc.lat}N${loc.lon}E`;
 
   return `<div class="card">
     <div class="card-header">
@@ -1198,7 +1200,8 @@ function renderCard(loc, index) {
           <div class="card-coords">${loc.lat.toFixed(4)}, ${loc.lon.toFixed(4)}${data && data.elevation != null ? " · " + data.elevation + " ft" : ""}</div>
           <div style="margin-top:3px">
             <a class="noaa-link" href="${noaaUrl}" target="_blank" rel="noopener">NOAA forecast ↗</a>
-            <a class="noaa-link" href="${windyUrl}" target="_blank" rel="noopener" style="margin-left:10px">Radar (Windy) ↗</a>
+            <a class="noaa-link" href="${windyUrl}" target="_blank" rel="noopener" style="margin-left:10px">Radar + forecast (Windy) ↗</a>
+            <a class="noaa-link" href="${meteoblueUrl}" target="_blank" rel="noopener" style="margin-left:10px">Meteoblue 7-day ↗</a>
           </div>
         </div>
         <button class="card-close" onclick="removeLocation(${index})" title="Remove">×</button>
@@ -1467,7 +1470,7 @@ function renderCompChart() {
       ${bandNote}
       ${rangeToggle}
     </div>
-    <div id="compReadout" style="font-size:10px;font-family:var(--mono);color:var(--dim);min-height:15px;margin-bottom:2px;overflow-x:auto;white-space:nowrap;-webkit-overflow-scrolling:touch">Tap or drag on the chart to read exact values. Tap location below chart to hide." </div>
+    <div id="compReadout" style="font-size:10px;font-family:var(--mono);color:var(--dim);min-height:15px;margin-bottom:2px;overflow-x:auto;white-space:nowrap;-webkit-overflow-scrolling:touch">Tap or drag on the chart to read exact values</div>
     <svg id="compSvg" class="comp-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="touch-action:pan-y;cursor:crosshair">
       ${yLabels}
       ${xLabels}
