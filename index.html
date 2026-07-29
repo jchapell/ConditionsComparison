@@ -1107,7 +1107,7 @@ function toggleRadar(index) {
 
 function radarSection(loc, index) {
   const isOpen = radarOpen.has(locKey(loc));
-  const btn = `<button onclick="toggleRadar(${index})" style="display:block;width:100%;text-align:left;padding:7px 12px;font-size:10px;font-family:var(--mono);letter-spacing:0.04em;background:transparent;border:none;color:${isOpen ? "var(--accent)" : "var(--dim)"};cursor:pointer">${isOpen ? "▾ RADAR — live (tap to close)" : "▸ RADAR — tap to load live view"}</button>`;
+  const btn = `<button onclick="toggleRadar(${index})" style="display:block;width:100%;text-align:left;padding:8px 12px;font-size:11px;font-family:var(--mono);font-weight:700;letter-spacing:0.04em;background:transparent;border:none;color:var(--accent);cursor:pointer">${isOpen ? "▾ RADAR — live (tap to close)" : "▸ RADAR — tap to load live view"}</button>`;
   const frame = isOpen
     ? `<iframe src="https://embed.windy.com/embed2.html?lat=${loc.lat}&lon=${loc.lon}&detailLat=${loc.lat}&detailLon=${loc.lon}&zoom=11&overlay=radar&level=surface&marker=true&menu=&message=&calendar=now&type=map&metricWind=mph&metricTemp=%C2%B0F" width="100%" height="220" frameborder="0" loading="lazy" style="display:block;border:0"></iframe>`
     : "";
@@ -1166,7 +1166,7 @@ function renderCard(loc, index) {
 
       body += `<div class="${cls}" onclick="selectDay(${pi}, '${rowId}')">
         <div class="daily-grid">
-          <div class="daily-name"><span style="display:inline-block;width:12px;font-size:9px;color:var(--dim)">${isOpen ? "▾" : "▸"}</span>${esc(p.name)}${isSelected ? ' <span style="font-size:9px;color:var(--accent);font-weight:400">● hourly</span>' : ""}</div>
+          <div class="daily-name"><span style="display:inline-block;width:14px;font-size:11px;font-weight:700;color:var(--accent)">${isOpen ? "▾" : "▸"}</span>${esc(p.name)}${isSelected ? ' <span style="font-size:9px;color:var(--accent);font-weight:400">● hourly</span>' : ""}</div>
           ${weatherIcon(p.shortForecast, 20)}
           ${tempBarHtml(p.temperature, min, max, night, false)}
           ${windHtml(p.windDirection, p.windSpeed)}
@@ -1185,9 +1185,11 @@ function renderCard(loc, index) {
     footer = `<div class="card-footer">Updated: ${new Date(data.updated).toLocaleString()}</div>`;
   }
 
-  // Radar (Windy) — opens in-browser, no app required. zoom level 8.
-  const windyUrl = `https://www.windy.com/?radar,${loc.lat},${loc.lon},8`;
+  // Windy — the /{lat}/{lon}/meteogram form opens the forecast + meteogram view, with radar layer.
+  const windyUrl = `https://www.windy.com/${loc.lat}/${loc.lon}/meteogram?radar,${loc.lat},${loc.lon},8,p:temp`;
   const noaaUrl  = `https://forecast.weather.gov/MapClick.php?lat=${loc.lat}&lon=${loc.lon}`;
+  // meteoblue 7-day — coordinate path; negative (western) longitudes keep the E suffix, which meteoblue resolves.
+  const meteoblueUrl = `https://www.meteoblue.com/en/weather/week/${loc.lat}N${loc.lon}E`;
 
   return `<div class="card">
     <div class="card-header">
@@ -1198,7 +1200,8 @@ function renderCard(loc, index) {
           <div class="card-coords">${loc.lat.toFixed(4)}, ${loc.lon.toFixed(4)}${data && data.elevation != null ? " · " + data.elevation + " ft" : ""}</div>
           <div style="margin-top:3px">
             <a class="noaa-link" href="${noaaUrl}" target="_blank" rel="noopener">NOAA forecast ↗</a>
-            <a class="noaa-link" href="${windyUrl}" target="_blank" rel="noopener" style="margin-left:10px">Radar (Windy) ↗</a>
+            <a class="noaa-link" href="${windyUrl}" target="_blank" rel="noopener" style="margin-left:10px">Windy Radar/Meteo ↗</a>
+            <a class="noaa-link" href="${meteoblueUrl}" target="_blank" rel="noopener" style="margin-left:10px">Meteoblue 7-day ↗</a>
           </div>
         </div>
         <button class="card-close" onclick="removeLocation(${index})" title="Remove">×</button>
